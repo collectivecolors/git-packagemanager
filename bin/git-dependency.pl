@@ -65,9 +65,6 @@
 use strict;
 use warnings;
 
-use feature 'say';
-use feature 'switch';
-
 use constant {
 	# Boolean syntactic sugar
 	TRUE       => 1,
@@ -82,6 +79,9 @@ use constant {
 	COMMIT_MSG  => 'message',
 	INPUT       => 'input',	
 };
+
+use Switch;
+
 
 # CPAN modules
 
@@ -100,18 +100,18 @@ my %SETTINGS = ();
 # Command initialization
 #-------------------------------------------------------------------------------
 
-given(shift @ARGV) {
+switch (shift @ARGV) {
 	
-	when(CMD_ADD) {
+	case CMD_ADD {
 		command_add(@ARGV); # Launch dependency add command	
 	}
-	when(CMD_LIST) {
+	case CMD_LIST {
 		command_list(@ARGV); # Launch dependency list command
 	}
-	when(CMD_REMOVE) {
+	case CMD_REMOVE {
 		command_remove(@ARGV); # Launch dependency remove command
 	}
-	default {
+	else {
 		display_usage(@ARGV);	
 	}	
 }
@@ -122,7 +122,7 @@ given(shift @ARGV) {
 #-------------------------------------------------------------------------------
 
 sub display_usage {
-	say 'Invalid command.  Only add, list, and remove commands supported.';
+	die 'Invalid command.  Only add, list, and remove commands supported.';
 }
 
 #*******************************************************************************
