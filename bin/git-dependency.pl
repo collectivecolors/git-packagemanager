@@ -74,7 +74,7 @@ use constant {
 	CMD_LIST   => 'list',
 	CMD_REMOVE => 'remove',
 	# Settings
-	DEBUG       => 'debug',
+	VERBOSE     => 'verbose',
 	COMMIT_FLAG => 'commit',
 	COMMIT_MSG  => 'message',
 	INPUT       => 'input',	
@@ -82,15 +82,21 @@ use constant {
 
 use Switch;
 
-
 # CPAN modules
 
-use Getopt::OO qw(Debug Verbose);
+use Getopt::OO;
+
+# Git modules.
+
+use Git;
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Command variables
 #-------------------------------------------------------------------------------
+
+# Repository information.
+my $REPOSITORY = Git->repository();
 
 # Command settings.
 my %SETTINGS = ();
@@ -122,7 +128,7 @@ switch (shift @ARGV) {
 #-------------------------------------------------------------------------------
 
 sub display_usage {
-	die 'Invalid command.  Only add, list, and remove commands supported.';
+	print "Invalid command.  Only add, list, and remove commands supported.\n";
 }
 
 #*******************************************************************************
@@ -135,7 +141,7 @@ sub display_usage {
 #
 # git-dependency add
 #  [ -h | --help ]
-#  [ -d | --debug ] 
+#  [ -v | --verbose ] 
 #  [ -c | --commit ] 
 #  [ -m | --message {message} ] 
 #  {repository} ...
@@ -147,7 +153,8 @@ sub command_add {
 		Getopt::OO->new(\@_, command_add_options())
 	);
 	
-	Debug('Starting dependency add command.');
+	verbose('Repository path: ' . $REPOSITORY->wc_path() . "\n");
+	verbose('Starting dependency add command.');
 	
 				
 }
@@ -199,7 +206,7 @@ sub command_add_settings {
 #
 # git-dependency list
 #  [ -h | --help ]
-#  [ -d | --debug ] 
+#  [ -v | --verbose ] 
 
 sub command_list {
 	
@@ -208,7 +215,8 @@ sub command_list {
 		Getopt::OO->new(\@_, command_list_options())
 	);
 	
-	Debug('Starting dependency list command.');
+	verbose('Repository path: ' . $REPOSITORY->wc_path() . "\n");
+	verbose('Starting dependency list command.');
 			
 }
 
@@ -244,7 +252,7 @@ sub command_list_settings {
 #
 # git-dependency remove
 #  [ -h | --help ]
-#  [ -d | --debug ]  
+#  [ -v | --verbose ]  
 #  [ -c | --commit ] 
 #  [ -m | --message {message} ] 
 #  [ {path} ... ]
@@ -256,7 +264,8 @@ sub command_remove {
 		Getopt::OO->new(\@_, command_remove_options())
 	);
 	
-	Debug('Starting dependency remove command.');
+	verbose('Repository path: ' . $REPOSITORY->wc_path() . "\n");
+	verbose('Starting dependency remove command.');
 	
 			
 }
@@ -333,13 +342,11 @@ sub display_options {
 	# Add to pre-existing options hash.
 	my $options = shift;
 	
-	$options->{'-d'} = {
-       	help     => 'Display debug information.',
-       	callback => sub {Debug(1); 0},
+	$options->{'-v'} = {
+       	help => 'Display more information.',
     };
-    $options->{'--debug'} = {
-    	help     => 'See information for -d option.',
-    	callback => sub {Debug(1); 0}, 	
+    $options->{'--verbose'} = {
+    	help => 'See information for -v option.',
     };	
 }
 
@@ -353,7 +360,7 @@ sub parse_display_settings {
 	}
 	
 	# Parse settings.
-	$SETTINGS{DEBUG} = $parser->Values('-d') || $parser->Values('--debug');
+	$SETTINGS{VERBOSE} = $parser->Values('-v') || $parser->Values('--verbose');
 }
 
 #-------------------------------------------------------------------------------
@@ -405,5 +412,11 @@ sub parse_commit_settings {
 	}
 	elsif ($parser->Values('--message')) {
 		$SETTINGS{COMMIT_MESSAGE} = $parser->Values('--message');	
+	}	
+}
+
+sub verbose {
+	if ($SETTINGS{VERBOSE}) {
+		print $_[0];	
 	}	
 }
