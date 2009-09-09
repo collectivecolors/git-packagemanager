@@ -74,6 +74,8 @@ use constant {
 	CMD_LIST   => 'list',
 	CMD_REMOVE => 'remove',
 	# Settings
+	COMMAND     => 'command',
+	REPO_PATH   => 'repoPath',
 	VERBOSE     => 'verbose',
 	COMMIT_FLAG => 'commit',
 	COMMIT_MSG  => 'message',
@@ -95,30 +97,34 @@ use Git;
 # Command variables
 #-------------------------------------------------------------------------------
 
-# Repository information.
-my $REPOSITORY = Git->repository();
+# Repository information. ( Dies if no repository! )
+our $REPO = Git->repository();
 
 # Command settings.
-my %SETTINGS = ();
+our %SETTINGS = (
+	COMMAND    => shift @ARGV,
+	PARAMETERS => \@ARGV,
+	REPO_PATH  => $REPO->wc_path(),
+);
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Command initialization
 #-------------------------------------------------------------------------------
 
-switch (shift @ARGV) {
+switch ($SETTINGS{COMMAND}) {
 	
 	case CMD_ADD {
-		command_add(@ARGV); # Launch dependency add command	
+		command_add(); # Launch dependency add command	
 	}
 	case CMD_LIST {
-		command_list(@ARGV); # Launch dependency list command
+		command_list(); # Launch dependency list command
 	}
 	case CMD_REMOVE {
-		command_remove(@ARGV); # Launch dependency remove command
+		command_remove(); # Launch dependency remove command
 	}
 	else {
-		display_usage(@ARGV);	
+		display_usage();	
 	}	
 }
 
@@ -128,7 +134,16 @@ switch (shift @ARGV) {
 #-------------------------------------------------------------------------------
 
 sub display_usage {
-	print "Invalid command.  Only add, list, and remove commands supported.\n";
+	display(
+		($SETTINGS{COMMAND} ? 'Invalid command specified.' 
+												: 'No command specified.'),
+		'',
+		'Supported dependency commands :',
+		'',
+		' git dependency add --help',
+		' git dependency list --help',
+		' git dependency remove --help'
+	);
 }
 
 #*******************************************************************************
@@ -150,11 +165,12 @@ sub command_add {
 	
 	# Parse command settings.
 	command_add_settings(
-		Getopt::OO->new(\@_, command_add_options())
+		Getopt::OO->new($SETTINGS{PARAMETERS}, command_add_options())
 	);
 	
-	verbose('Repository path: ' . $REPOSITORY->wc_path() . "\n");
 	verbose('Starting dependency add command.');
+	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
+	
 	
 				
 }
@@ -165,8 +181,8 @@ sub command_add_options {
 	
 	my %options = (
 		other_values => {
-        	help => 'repository ...',
-        },
+    	help => 'repository ...',
+		},
 	);
 	
 	commit_options(\%options);
@@ -186,7 +202,8 @@ sub command_add_settings {
 	
 	# Get command repositories.
 	if (!@{$parser->Values('other_values')}) {
-		die $parser->Help();
+		display($parser->Help());
+		exit();
 	}	
 	
 	@{$SETTINGS{INPUT}} = $parser->Values('other_values');
@@ -212,11 +229,12 @@ sub command_list {
 	
 	# Parse command settings.
 	command_list_settings(
-		Getopt::OO->new(\@_, command_list_options())
+		Getopt::OO->new($SETTINGS{PARAMETERS}, command_list_options())
 	);
 	
-	verbose('Repository path: ' . $REPOSITORY->wc_path() . "\n");
 	verbose('Starting dependency list command.');
+	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
+	
 			
 }
 
@@ -261,11 +279,12 @@ sub command_remove {
 	
 	# Parse command settings.
 	command_remove_settings(
-		Getopt::OO->new(\@_, command_remove_options())
+		Getopt::OO->new($SETTINGS{PARAMETERS}, command_remove_options())
 	);
 	
-	verbose('Repository path: ' . $REPOSITORY->wc_path() . "\n");
 	verbose('Starting dependency remove command.');
+	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
+	
 	
 			
 }
@@ -330,7 +349,7 @@ sub parse_help_settings {
 	my $parser = shift;
 	
 	if ($parser->Values('-h') || $parser->Values('--help')) {
-		print $parser->Help();
+		display($parser->Help());
 		exit();
 	}	
 }
@@ -415,8 +434,25 @@ sub parse_commit_settings {
 	}	
 }
 
+sub display {
+	# If no input given, assume newline.
+	return "\n" unless (@_);
+	
+	# If more than one parameter, assume multiple line text as array.
+	if (@_ > 1) {
+		foreach my $line (@_) {
+			print $line . "\n";
+		}
+	}
+	# If single parameter, print one line.
+	else {
+		print $_[0] . "\n";
+	}	
+}
+
 sub verbose {
+	# Only print if verbose flag was set.
 	if ($SETTINGS{VERBOSE}) {
-		print $_[0];	
+		display(@_);		
 	}	
 }
