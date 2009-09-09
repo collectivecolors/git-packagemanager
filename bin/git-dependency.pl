@@ -67,19 +67,23 @@ use warnings;
 
 use constant {
 	# Boolean syntactic sugar
-	TRUE       => 1,
-	FALSE      => 0,
+	TRUE  => 1,
+	FALSE => 0,
 	# Commands
 	CMD_ADD    => 'add',
 	CMD_LIST   => 'list',
 	CMD_REMOVE => 'remove',
+	# Files
+	FILE_PACKAGE => '.gitpackage',
 	# Settings
-	COMMAND     => 'command',
-	REPO_PATH   => 'repoPath',
-	VERBOSE     => 'verbose',
-	COMMIT_FLAG => 'commit',
-	COMMIT_MSG  => 'message',
-	INPUT       => 'input',	
+	COMMAND        => 'command',
+	REPO_PATH      => 'repo_path',
+	VERBOSE        => 'verbose',
+	COMMIT_FLAG    => 'commit',
+	COMMIT_MSG     => 'message',
+	INPUT          => 'input',
+	DEPENDENCY_MAP => 'dependency_map',
+	REMOVE_ALL     => 'remove_all',	
 };
 
 use Switch;
@@ -102,9 +106,10 @@ our $REPO = Git->repository();
 
 # Command settings.
 our %SETTINGS = (
-	COMMAND    => shift @ARGV,
-	PARAMETERS => \@ARGV,
-	REPO_PATH  => $REPO->wc_path(),
+	COMMAND        => shift @ARGV,
+	PARAMETERS     => \@ARGV,
+	REPO_PATH      => $REPO->wc_path(),
+	DEPENDENCY_MAP => {},
 );
 
 #*******************************************************************************
@@ -136,7 +141,7 @@ switch ($SETTINGS{COMMAND}) {
 sub display_usage {
 	display(
 		($SETTINGS{COMMAND} ? 'Invalid command specified.' 
-												: 'No command specified.'),
+							: 'No command specified.'),
 		'',
 		'Supported dependency commands :',
 		'',
@@ -167,12 +172,30 @@ sub command_add {
 	command_add_settings(
 		Getopt::OO->new($SETTINGS{PARAMETERS}, command_add_options())
 	);
-	
+		
 	verbose('Starting dependency add command.');
 	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
 	
+	# Load existing dependencies for this package.
+	load_dependencies();	
 	
-				
+	# Add dependencies to .gitpackage file (overwrite if exists).
+	foreach my $repo (@{$SETTINGS{INPUT}}) {
+		my $path = find_repository_path($repo);
+		
+		verbose("Resolved path of package [ $repo ] to [ $path ]");
+		
+		$SETTINGS{DEPENDENCY_MAP}->{$path} = {
+			path => $path,
+			url =>  $repo,			
+		}
+	}
+	
+	# Store modified dependencies for this package.
+	store_dependencies();
+	
+	# Commit changes to the package file.
+	commit_changes();			
 }
 
 #-------------------------------------------------------------------------------
@@ -235,7 +258,11 @@ sub command_list {
 	verbose('Starting dependency list command.');
 	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
 	
-			
+	# Load existing dependencies for this package.
+	load_dependencies();
+	
+	# Print representation of dependencies for this package.
+	display_dependencies();			
 }
 
 #-------------------------------------------------------------------------------
@@ -285,8 +312,24 @@ sub command_remove {
 	verbose('Starting dependency remove command.');
 	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
 	
+	# Load existing dependencies for this package.
+	load_dependencies();
 	
-			
+	if ($SETTINGS{REMOVE_ALL}) {
+		%{$SETTINGS{DEPENDENCY_MAP}} = ();
+	}
+	elsif ($SETTINGS{INPUT}) {
+		# Remove all specified paths.
+		foreach my $path (@{$SETTINGS{INPUT}}) {		
+			delete $SETTINGS{DEPENDENCY_MAP}->{$path};	
+		}
+	}
+	
+	# Store modified dependencies for this package.
+	store_dependencies();
+	
+	# If specified, commit changes to the package file.
+	commit_changes();		
 }
 
 #-------------------------------------------------------------------------------
@@ -294,8 +337,13 @@ sub command_remove {
 sub command_remove_options {
 	
 	my %options = (
-		usage => 'git-dependency remove',
-		other_values => {
+		'-a' => {
+			help => 'Remove all dependencies.',
+		},
+		'--all' => {
+			help => 'See information for -a option.',	
+		},
+		'other_values' => {
         	help => 'path ...',
         },
 	);
@@ -318,6 +366,16 @@ sub command_remove_settings {
 	# Get command paths.
 	if (@{$parser->Values('other_values')}) {
 		$SETTINGS{INPUT} = $parser->Values('other_values');
+	}
+	
+	$SETTINGS{REMOVE_ALL} = $parser->Values('-a') || $parser->Values('--all');
+	
+	if (!$SETTINGS{INPUT} && !$SETTINGS{REMOVE_ALL}) {
+		display();
+		display('You should either specify packages' 
+				. ' or the --all option to remove all dependencies.');
+		display();
+		display($parser->Help());	
 	}
 	
 	# Get extra command options.
@@ -434,9 +492,187 @@ sub parse_commit_settings {
 	}	
 }
 
+#-------------------------------------------------------------------------------
+
+sub display_dependencies {
+	my %packages       = ();
+	my $display_length = 0;
+	
+	# Gather info about current packages.
+	foreach my $package (keys %{$SETTINGS{DEPENDENCY_MAP}}) {
+		$packages{$package} = $SETTINGS{DEPENDENCY_MAP}->{$package}{url};
+		$display_length = (length $package > $display_length ? length $package 
+															 : $display_length);		
+	}
+	
+	# Display current packages.
+	if ($display_length) {
+		display();
+	
+		foreach (sort keys %packages) {
+			display(sprintf " %-${display_length}s  [  %s  ]", 
+					$_, $packages{$_});
+		}
+	}
+	else {
+		display('No dependencies registered.');
+	}
+}
+
+#-------------------------------------------------------------------------------
+
+sub load_dependencies {
+	
+	# Initialize dependency map for current repo.
+	my $package_file = $SETTINGS{REPO_PATH} . FILE_PACKAGE;
+		
+	verbose('Loading package file : ' . $package_file);
+	open(HANDLE, $package_file) or return;
+	
+	verbose('Package file opened successfully.');
+	
+	# Import packages.
+	my $package;
+	
+	while (<HANDLE>) {
+		# Strip whitespace.
+		s/\s*//g;
+		
+		next unless ($_);
+			
+		# If we come across a new package, change packages.
+		if (/^\[dependency"?([^"\]]+)"?\]$/i) {
+			$package = $1;
+			verbose('Loading package : ' . $package);	
+		}
+		elsif (/^\[.+\]$/) {
+			$package = FALSE;
+		}
+		elsif ($package) {
+				
+			# Split variable and value on equals sign.
+			my ($variable, $value) = split(/\=/);
+			
+			verbose("Setting package variable [ $variable ]"
+					. " to value [ $value ]");
+			
+			$SETTINGS{DEPENDENCY_MAP}->{$package}{$variable} = $value; 
+		}	
+	}
+	
+	verbose('Dependencies loaded successfully.');
+	close(HANDLE);
+}
+
+#-------------------------------------------------------------------------------
+
+sub store_dependencies {
+	
+	# Store dependency map for current repo.
+	my $package_file = $SETTINGS{REPO_PATH} . FILE_PACKAGE;
+	my @lines        = load_exclude_info($package_file, 'dependency');
+		
+	verbose('Writing package file : ' . $package_file);
+	open(HANDLE, ">$package_file") or die $!;
+	
+	verbose('Package file opened successfully.');
+	
+	# Always write in same order. (for versioning)
+	foreach my $package (sort keys %{$SETTINGS{DEPENDENCY_MAP}}) {
+		
+		push(@lines, "[dependency \"$package\"]\n");
+		
+		my $variables = $SETTINGS{DEPENDENCY_MAP}->{$package};
+		foreach (sort keys %$variables) {
+			push(@lines, "  $_ = " . $variables->{$_} . "\n");	
+		}			
+	}
+	
+	print HANDLE @lines;	
+	
+	verbose('Dependencies saved successfully.');
+	close(HANDLE);
+}
+
+#-------------------------------------------------------------------------------
+
+sub load_exclude_info {
+	my ($filename, $exclude) = @_;
+	
+	my @lines   = ();
+	my $include = TRUE;
+	
+	open HANDLE, $filename or return;
+
+	while (<HANDLE>) {
+		my $line = $_;
+			
+		# Strip whitespace.
+		s/\s*//g;
+		
+		next unless ($_);		
+			
+		if (/^\[$exclude.+\]$/i) {
+			$include = FALSE;	
+		}
+		elsif (/^\[.+\]$/) {
+			$include = TRUE;
+			push(@lines, $line);	
+		}
+		elsif ($include) {
+			push(@lines, $line);	
+		}		
+	}	
+	close HANDLE;
+	
+	return @lines;	
+}
+
+#-------------------------------------------------------------------------------
+
+sub find_repository_path {
+	my @repo_parts = split(/\//, shift);
+	
+	# Remove everything but the file name.
+	my $path = pop(@repo_parts);
+	
+	# Remove anything before a dash.
+	$path =~ s/^[^-]*-//;
+	
+	# Remove the git extension from the file.
+	$path =~ s/.git$//i;
+	
+	# Replace dot separators with forward slashes.
+	$path =~ s/\./\//g;
+	
+	return $path;	
+}
+
+#-------------------------------------------------------------------------------
+
+sub commit_changes {
+	if ($SETTINGS{COMMIT_FLAG}) {
+		# Add the package file to the staged changes.
+		$REPO->command('add', $SETTINGS{REPO_PATH} . FILE_PACKAGE);
+		
+		# Commit changes.
+		if ($SETTINGS{COMMIT_MSG}) {
+			$REPO->command('commit', '-m "' . $SETTINGS{COMMIT_MSG} . '"');	
+		}
+		else {
+			$REPO->command('commit');
+		}
+	}
+}
+
+#-------------------------------------------------------------------------------
+
 sub display {
 	# If no input given, assume newline.
-	return "\n" unless (@_);
+	unless (@_) {
+		print "\n";
+		return;
+	}
 	
 	# If more than one parameter, assume multiple line text as array.
 	if (@_ > 1) {
@@ -449,6 +685,8 @@ sub display {
 		print $_[0] . "\n";
 	}	
 }
+
+#-------------------------------------------------------------------------------
 
 sub verbose {
 	# Only print if verbose flag was set.
