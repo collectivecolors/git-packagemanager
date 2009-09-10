@@ -636,11 +636,11 @@ sub find_repository_path {
 	# Remove everything but the file name.
 	my $path = pop(@repo_parts);
 	
-	# Remove anything before a dash.
-	$path =~ s/^[^-]*-//;
+	# Remove anything before the last dash in the file name.
+	$path =~ s/^([^-]*-)*//;
 	
 	# Remove the git extension from the file.
-	$path =~ s/.git$//i;
+	$path =~ s/\.git$//i;
 	
 	# Replace dot separators with forward slashes.
 	$path =~ s/\./\//g;
@@ -660,7 +660,8 @@ sub commit_changes {
 			$REPO->command('commit', '-m "' . $SETTINGS{COMMIT_MSG} . '"');	
 		}
 		else {
-			$REPO->command('commit');
+			# Run this through system, since it is an interactive command.
+			system('git commit');
 		}
 	}
 }
