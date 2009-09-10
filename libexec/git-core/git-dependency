@@ -485,10 +485,10 @@ sub parse_commit_settings {
 							|| $parser->Values('--commit');
 							
 	if ($parser->Values('-m')) {
-		$SETTINGS{COMMIT_MESSAGE} = $parser->Values('-m');
+		$SETTINGS{COMMIT_MSG} = $parser->Values('-m');
 	}
 	elsif ($parser->Values('--message')) {
-		$SETTINGS{COMMIT_MESSAGE} = $parser->Values('--message');	
+		$SETTINGS{COMMIT_MSG} = $parser->Values('--message');	
 	}	
 }
 
@@ -570,8 +570,14 @@ sub store_dependencies {
 	
 	# Store dependency map for current repo.
 	my $package_file = $SETTINGS{REPO_PATH} . FILE_PACKAGE;
-	my @lines        = load_exclude_info($package_file, 'dependency');
-		
+	my @lines = load_exclude_info($package_file, 'dependency');
+	
+	if (! @lines && ! keys %{$SETTINGS{DEPENDENCY_MAP}}) {
+		verbose('Removing package file : ' . $package_file);
+		unlink $package_file;
+		return;		
+	}
+			
 	verbose('Writing package file : ' . $package_file);
 	open(HANDLE, ">$package_file") or die $!;
 	
@@ -657,7 +663,7 @@ sub commit_changes {
 		
 		# Commit changes.
 		if ($SETTINGS{COMMIT_MSG}) {
-			$REPO->command('commit', '-m "' . $SETTINGS{COMMIT_MSG} . '"');	
+			$REPO->command('commit', '-m ' . $SETTINGS{COMMIT_MSG});	
 		}
 		else {
 			# Run this through system, since it is an interactive command.
