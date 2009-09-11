@@ -27,7 +27,7 @@ use constant {
 	SECTIONS       => 'sections',
 	
 	DEPENDENCY_MAP => 'dependency',
-	SECTION_NAME   => 'section_name',
+	DEFAULT_NAME   => 'default_name',
 };
 
 require Exporter;
@@ -60,7 +60,7 @@ sub new {
 	my $self = {
 		DISPLAY      => Display->new(%config),
 		PACKAGE_FILE => ($config{REPO_PATH} ? $config{REPO_PATH} : '') 
-					 . PACKAGE_FILE_NAME,
+					 					. PACKAGE_FILE_NAME,
 		SETTINGS     => {},
 		SECTIONS     => [],		
 	};
@@ -85,7 +85,7 @@ sub dependencies {
 	my ($self) = @_;
 	
 	if (wantarray) {
-		return keys %{$self->{SETTINGS}{DEPENDENCY_MAP}};	
+		return sort keys %{$self->{SETTINGS}{DEPENDENCY_MAP}};	
 	}
 	
 	return $self->{SETTINGS}{DEPENDENCY_MAP};
@@ -102,7 +102,10 @@ sub load {
 		
 	$display->verbose('Loading package file : ' . $self->{PACKAGE_FILE});
 	
-	open(HANDLE, $self->{PACKAGE_FILE}) or return;
+	unless (open(HANDLE, $self->{PACKAGE_FILE})) {
+		$display->normal('Package file open failed with error : ' . $!);
+		return;	
+	}
 	
 	$display->debug('Package file opened successfully.');
 	
@@ -118,7 +121,7 @@ sub load {
 			
 		if (/^\[([^"\]]+)"?([^"\]]+)*"?\]$/) {
 			$section = $1;
-			$name    = ($2 ? $2 : SECTION_NAME);
+			$name    = ($2 ? $2 : DEFAULT_NAME);
 			
 			$display->debug('Loading section : ' . $section . " [ $name ]");
 			
@@ -130,7 +133,7 @@ sub load {
 			my ($variable, $value) = split(/\=/);
 			
 			$display->debug("Setting variable [ $variable ]"
-							. " to value [ $value ]");
+											. " to value [ $value ]");
 			
 			$self->{SETTINGS}{$section}{$name}{$variable} = $value; 
 		}	
