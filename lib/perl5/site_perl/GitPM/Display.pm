@@ -1,4 +1,4 @@
-package Display;
+package GitPM::Display;
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
@@ -7,6 +7,8 @@ package Display;
 
 use strict;
 use warnings;
+
+#-------------------------------------------------------------------------------
 
 use constant {
 
@@ -19,21 +21,21 @@ use constant {
   DEBUG   => 'debug',
 };
 
-require Exporter;
-
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Globals
 #-------------------------------------------------------------------------------
 
-our ( $VERSION, @ISA, @EXPORT, @EXPORT_OK );
+our ( $VERSION );    #, @ISA, @EXPORT, @EXPORT_OK );
 
 $VERSION = '0.1';
 
-@ISA = qw(Exporter);
+# require Exporter;
 
-@EXPORT    = qw();
-@EXPORT_OK = qw();
+# @ISA = qw(Exporter);
+
+# @EXPORT    = qw();
+# @EXPORT_OK = qw();
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
@@ -95,8 +97,8 @@ sub normal {
 sub verbose {
   my ( $self, @text ) = @_;
 
-  # Only print if verbose flag was set.
-  if ( $self->{ VERBOSE } ) {
+  # Only print if debug or verbose flag was set.
+  if ( $self->{ DEBUG } || $self->{ VERBOSE } ) {
     $self->normal( @text );
   }
 }

@@ -1,4 +1,4 @@
-package Package;
+package GitPM::Config;
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
@@ -8,45 +8,44 @@ package Package;
 use strict;
 use warnings;
 
+use GitPM::Display;
+
+#-------------------------------------------------------------------------------
+
 use constant {
 
   # Boolean syntactic sugar
   TRUE  => 1,
   FALSE => 0,
 
-  # Files
-  PACKAGE_FILE_NAME => '.gitpackage',
-
-  # Properties ( hash keys )
-  REPO_PATH    => 'repo_path',
-  PACKAGE_FILE => 'package_file',
+  # Public properties ( hash keys )
+  PATH      => 'path',
+  FILE_NAME => 'file_name',
 
   DISPLAY => 'display',
 
-  SETTINGS  => 'settings',
+  # Internal properties ( hash keys )
+  SETTINGS => 'settings',
+
   NAMED_MAP => 'named_map',
   DATA      => 'data',
-
-  DEPENDENCY_MAP => 'dependency',
 };
-
-require Exporter;
-
-use Display;
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Globals
 #-------------------------------------------------------------------------------
 
-our ( $VERSION, @ISA, @EXPORT, @EXPORT_OK );
+our ( $VERSION );    #, @ISA, @EXPORT, @EXPORT_OK );
 
 $VERSION = '0.1';
 
-#@ISA = qw(Exporter);
-
-#@EXPORT    = qw();
-#@EXPORT_OK = qw();
+# require Exporter;
+#
+# @ISA = qw(Exporter);
+#
+# @EXPORT    = qw();
+# @EXPORT_OK = qw();
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
@@ -66,10 +65,15 @@ sub new {
   bless( $self, $class );
 
   $self->set_display(
-    ( $config{ DISPLAY } ? $config{ DISPLAY } : Display->new( %config ) ) );
+    (
+        $config{ DISPLAY }
+      ? $config{ DISPLAY }
+      : GitPM::Display->new( %config )
+    )
+  );
 
-  $self->set_repository_path(
-    ( $config{ REPO_PATH } ? $config{ REPO_PATH } : '' ) );
+  $self->set_path( $config{ PATH } );
+  $self->set_file_name( $config{ FILE_NAME } );
 
   return $self;
 }
@@ -96,33 +100,47 @@ sub set_display {
 
 #-------------------------------------------------------------------------------
 
-sub repository_path {
+sub file_name {
   my ( $self ) = @_;
-  return $self->{ REPO_PATH };
+  return $self->{ FILE_NAME };
 }
 
 #-------------------------------------------------------------------------------
 
-sub package_file {
-  my ( $self ) = @_;
-  return $self->{ PACKAGE_FILE };
+sub set_file_name {
+  my ( $self, $file_name ) = @_;
+
+  $self->{ FILE_NAME } = $file_name;
 }
 
 #-------------------------------------------------------------------------------
 
-sub set_repository_path {
-  my ( $self, $repo_path ) = @_;
+sub path {
+  my ( $self ) = @_;
+  return $self->{ PATH };
+}
+
+#-------------------------------------------------------------------------------
+
+sub set_path {
+  my ( $self, $path ) = @_;
   my $display = $self->display();
 
   # Check if the path ends with a trailing slash.
-  unless ( !$repo_path || $repo_path =~ /\/$/ ) {
-    $repo_path .= '/';
+  unless ( !$path || $path =~ /\/$/ ) {
+    $path .= '/';
   }
 
-  $self->{ REPO_PATH }    = $repo_path;
-  $self->{ PACKAGE_FILE } = $repo_path . PACKAGE_FILE_NAME;
+  $self->{ PATH } = $path;
 
-  $display->debug( 'Setting package file to : ' . $self->package_file() );
+  $display->debug( 'Setting path to : ' . $self->path() );
+}
+
+#-------------------------------------------------------------------------------
+
+sub file {
+  my ( $self ) = @_;
+  return $self->path() . $self->file_name();
 }
 
 #-------------------------------------------------------------------------------
@@ -130,6 +148,26 @@ sub set_repository_path {
 sub is_named {
   my ( $self, $section ) = @_;
   return $self->{ SETTINGS }{ NAMED_MAP }{ $section };
+}
+
+#-------------------------------------------------------------------------------
+
+# INTERNAL USE ONLY.
+
+sub set_named {
+  my ( $self, $section ) = @_;
+
+  $self->{ SETTINGS }{ NAMED_MAP }{ $section } = TRUE;
+}
+
+#-------------------------------------------------------------------------------
+
+# INTERNAL USE ONLY.
+
+sub remove_named {
+  my ( $self, $section ) = @_;
+
+  delete $self->{ SETTINGS }{ NAMED_MAP }{ $section };
 }
 
 #-------------------------------------------------------------------------------
@@ -170,24 +208,40 @@ sub clear_settings {
 
 #-------------------------------------------------------------------------------
 
-sub set_setting {
+sub core_setting {
+  my ( $self, $section, $variable ) = @_;
+  return $self->{ SETTINGS }{ DATA }{ $section }{ $variable };
+}
+
+#-------------------------------------------------------------------------------
+
+sub set_core_setting {
   my ( $self, $section, $variable, $value ) = @_;
 
-  $self->{ SETTINGS }{ DATA }{ $section }{ $variable } = $value;
+  if ( ref $variable eq 'HASH' ) {
+
+    # If value is true, then overwrite existing variables.
+    if ( $value ) {
+      $self->{ SETTINGS }{ DATA }{ $section } = $variable;
+    }
+
+    # Else, set specified variables to values given.
+    else {
+      while ( my ( $key, $value ) = each %$variable ) {
+        $self->{ SETTINGS }{ DATA }{ $section }{ $key } = $value;
+      }
+    }
+  }
+
+  # Set specified valiable to this value.
+  else {
+    $self->{ SETTINGS }{ DATA }{ $section }{ $variable } = $value;
+  }
 }
 
 #-------------------------------------------------------------------------------
 
-sub set_named_setting {
-  my ( $self, $section, $name, $variable, $value ) = @_;
-
-  $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $variable } = $value;
-  $self->{ SETTINGS }{ NAMED_MAP }{ $section } = TRUE;
-}
-
-#-------------------------------------------------------------------------------
-
-sub remove_settings {
+sub remove_core_setting {
   my ( $self, $section, $variable ) = @_;
   my $keep_section = FALSE;
 
@@ -201,13 +255,50 @@ sub remove_settings {
 
   unless ( $keep_section ) {
     delete $self->{ SETTINGS }{ DATA }{ $section };
-    delete $self->{ SETTINGS }{ NAMED_MAP }{ $section };
+
+    # remove_named_setting() calls this function.
+    $self->remove_named( $section );
   }
 }
 
 #-------------------------------------------------------------------------------
 
-sub remove_named_settings {
+sub named_setting {
+  my ( $self, $section, $name, $variable ) = @_;
+  return $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $variable };
+}
+
+#-------------------------------------------------------------------------------
+
+sub set_named_setting {
+  my ( $self, $section, $name, $variable, $value ) = @_;
+
+  if ( ref $variable eq 'HASH' ) {
+
+    # If value is true, then overwrite existing variables.
+    if ( $value ) {
+      $self->{ SETTINGS }{ DATA }{ $section }{ $name } = $variable;
+    }
+
+    # Else, set specified variables to values given.
+    else {
+      while ( my ( $key, $value ) = each %$variable ) {
+        $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $key } = $value;
+      }
+    }
+  }
+
+  # Set specified valiable to this value.
+  else {
+    $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $variable } = $value;
+  }
+
+  $self->set_named( $section );
+}
+
+#-------------------------------------------------------------------------------
+
+sub remove_named_setting {
   my ( $self, $section, $name, $variable ) = @_;
   my ( $keep_name, $keep_section );
 
@@ -215,7 +306,8 @@ sub remove_named_settings {
     delete $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $variable };
 
     if ( keys %{ $self->{ SETTINGS }{ DATA }{ $section }{ $name } } ) {
-      $keep_name = TRUE;
+      $keep_name    = TRUE;
+      $keep_section = TRUE;
     }
   }
 
@@ -232,35 +324,6 @@ sub remove_named_settings {
   }
 }
 
-#-------------------------------------------------------------------------------
-
-sub dependencies {
-  my ( $self ) = @_;
-  my $dependencies = $self->settings( DEPENDENCY_MAP );
-
-  if ( wantarray ) {
-    return sort keys %$dependencies;
-  }
-
-  return $dependencies;
-}
-
-#-------------------------------------------------------------------------------
-
-sub add_dependency {
-  my ( $self, $repo_url, %config ) = @_;
-
-  # TODO
-}
-
-#-------------------------------------------------------------------------------
-
-sub remove_dependency {
-  my ( $self, $repo_path ) = @_;
-
-  # TODO
-}
-
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # File storage
@@ -270,16 +333,16 @@ sub load {
   my ( $self ) = @_;
   my $display = $self->display();
 
-  $self->clear_settings();
-
-  $display->verbose( 'Loading package file : ' . $self->package_file() );
+  $display->verbose( 'Loading configuration file : ' . $self->file() );
 
   # Import package section configurations.
-  unless ( open( HANDLE, $self->package_file() ) ) {
-    $display->debug( 'Package file open failed with error : ' . $! );
+  unless ( open( HANDLE, $self->file() ) ) {
+    $display->debug( 'File open failed with error : ' . $! );
     return;
   }
-  $display->debug( 'Package file opened successfully.' );
+  $display->debug( 'File opened successfully.' );
+
+  $self->clear_settings();
 
   my ( $section, $name );
 
@@ -303,12 +366,12 @@ sub load {
         $self->set_named_setting( $section, $name, $variable, $value );
       }
       else {
-        $self->set_setting( $section, $variable, $value );
+        $self->set_core_setting( $section, $variable, $value );
       }
     }
   }
 
-  $display->verbose( 'Dependencies loaded successfully.' );
+  $display->verbose( 'Configuration file loaded successfully.' );
   close( HANDLE );
 }
 
@@ -319,39 +382,43 @@ sub store {
 
   my $display = $self->display();
 
-  my $package_file = $self->package_file();
-  my @sections     = $self->settings();
+  my $file     = $self->file();
+  my @sections = $self->settings();
 
   if ( !@sections ) {
-    $display->verbose( "Removing package file : $package_file" );
-    unlink $package_file;
+    $display->verbose( "Removing configuration file : $file" );
+    unlink $file;
     return;
   }
 
-  $display->verbose( "Writing package file : $package_file" );
-  open( HANDLE, ">$package_file" ) or die $!;
+  $display->verbose( "Writing configuration file : $file" );
+  open( HANDLE, ">$file" ) or die $!;
 
-  $display->debug( "Package file opened successfully." );
+  $display->debug( "File opened successfully." );
 
   # Always write in same order. (for versioning)
   foreach my $section ( @sections ) {
 
     if ( $self->is_named( $section ) ) {
-      foreach my $name ( @{ $self->settings( $section ) } ) {
-        my $variables = $self->settings( $section, $name );
-
+      foreach my $name ( $self->settings( $section ) ) {
         print HANDLE "[$section \"$name\"]\n";
 
-        # TODO
-
+        foreach my $variable ( $self->settings( $section, $name ) ) {
+          my $value = $self->named_setting( $section, $name, $variable );
+          print HANDLE "  $variable = $value\n";
+        }
       }
     }
     else {
+      print HANDLE "[$section]\n";
 
-      # TODO
+      foreach my $variable ( $self->settings( $section ) ) {
+        my $value = $self->core_setting( $section, $variable );
+        print HANDLE "  $variable = $value\n";
+      }
     }
   }
-  $display->verbose( 'Dependencies saved successfully.' );
+  $display->verbose( 'Configuration file stored successfully.' );
   close( HANDLE );
 }
 
