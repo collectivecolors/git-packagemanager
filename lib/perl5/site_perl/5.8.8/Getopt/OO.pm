@@ -100,6 +100,8 @@ require Exporter;
 $VERSION = '0.07';
 $Revision = '$Id:$';
 
+use Data::Dump qw( dump );
+
 =head1 NAME
 
 Getopt::OO - An object oriented command line parser.  It handles
@@ -584,6 +586,11 @@ sub build_help {
 	}
 
 	my ($template) = @_;
+	
+	if ( $template->{'help'} ) {
+	  return $template->{'help'};
+	}
+	
 	my $name = ($0 =~ m{^(?:.*/)*(.*)})[0];
 	my %required = (exists $template->{'required'})
 		? (map {$_, 1} @{$template->{'required'}})
@@ -957,10 +964,11 @@ sub new {
 	}
 	my ($argv, %template) = @_ unless @errors;
 	$this->{'help'} = build_help(\%template);
+		  
 	# check valid options.  Do this after help so we get a
 	# help message -- even if it's bogus.
 	my %valid = map {$_,1} qw(
-		other_values usage required mutual_exclusive
+		other_values help usage required mutual_exclusive
 	);
 	if (my @bad = grep !/^-/ && !$valid{$_}, keys %template) {
 		push @errors, "Unrecognized tags: @bad\n";
@@ -1040,7 +1048,7 @@ sub new {
 		}
 	}
 	if (@errors) {
-		die $this->{'help'}, "Found following errors:\n", @errors;
+	  die $this->{'help'}, "Found following errors:\n", @errors;
 	}
 	return($this);
 }

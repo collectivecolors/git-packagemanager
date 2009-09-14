@@ -1,4 +1,4 @@
-package GitPM::Display;
+package GitPM::Param;
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
@@ -7,6 +7,8 @@ package GitPM::Display;
 
 use strict;
 use warnings;
+
+use Getopt::OO;
 
 #-------------------------------------------------------------------------------
 
@@ -17,8 +19,7 @@ use constant {
   FALSE => 0,
 
   # Settings
-  VERBOSE => 'verbose',
-  DEBUG   => 'debug',
+  HELP => 'help',
 };
 
 #*******************************************************************************
@@ -26,13 +27,13 @@ use constant {
 # Globals
 #-------------------------------------------------------------------------------
 
-our ( $VERSION );    #, @ISA, @EXPORT, @EXPORT_OK );
+our ( $VERSION, @ISA ); #, @EXPORT, @EXPORT_OK );
 
 $VERSION = '0.1';
 
 # require Exporter;
 
-# @ISA = qw(Exporter);
+@ISA = qw( Getopt::OO ); #, Exporter);
 
 # @EXPORT    = qw();
 # @EXPORT_OK = qw();
@@ -43,12 +44,9 @@ $VERSION = '0.1';
 #-------------------------------------------------------------------------------
 
 sub new {
-  my ( $class, %config ) = @_;
+  my ( $class, $argv, %template ) = @_;
 
-  my $self = {
-    &VERBOSE => $config{ &VERBOSE },
-    &DEBUG   => $config{ &DEBUG },
-  };
+  my $self = Getopt::OO->new( $argv, %template );
 
   return bless( $self, $class );
 }
@@ -58,60 +56,22 @@ sub new {
 # Accessors / Modifiers
 #-------------------------------------------------------------------------------
 
-sub set_verbose {
-  my ( $self, $flag ) = @_;
 
-  $self->{ &VERBOSE } = $flag;
-}
-
-#-------------------------------------------------------------------------------
-
-sub set_debug {
-  my ( $self, $flag ) = @_;
-
-  $self->{ &DEBUG } = $flag;
-}
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
-# Display functions
+# Utilities
 #-------------------------------------------------------------------------------
 
-sub normal {
-  my ( $self, @text ) = @_;
-
-  # If no input given, assume newline.
-  unless ( @text ) {
-    print "\n";
-    return;
+sub build_help {
+  my ( $self, $template ) = @_;
+  
+  print 'Im here!';
+  
+  if ( $template->{ &HELP } ) {
+    return $template->{ &HELP };  
   }
-
-  # Print all lines.
-  foreach my $line ( @text ) {
-    print $line . "\n";
-  }
-}
-
-#-------------------------------------------------------------------------------
-
-sub verbose {
-  my ( $self, @text ) = @_;
-
-  # Only print if debug or verbose flag was set.
-  if ( $self->{ &DEBUG } || $self->{ &VERBOSE } ) {
-    $self->normal( @text );
-  }
-}
-
-#-------------------------------------------------------------------------------
-
-sub debug {
-  my ( $self, @text ) = @_;
-
-  # Only print if debug flag was set.
-  if ( $self->{ &DEBUG } ) {
-    $self->normal( @text );
-  }
+  return $self->SUPER::build_help;  
 }
 
 #-------------------------------------------------------------------------------

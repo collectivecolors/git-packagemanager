@@ -8,6 +8,8 @@ package GitPM::Package;
 use strict;
 use warnings;
 
+use Data::Dump qw( dump );
+
 use Git;
 
 use GitPM::Display;
@@ -27,13 +29,17 @@ use constant {
   # Public properties ( hash keys )
   REPOSITORY => 'repository',
 
-  DISPLAY => GitPM::Config::DISPLAY,
+  DISPLAY => &GitPM::Config::DISPLAY,
 
   # Dependency variables
   VAR_URL    => 'url',
   VAR_PATH   => 'path',
   VAR_BRANCH => 'branch',
   VAR_COMMIT => 'commit',
+  
+  OPT_STORE => 'option_store',
+  OPT_COMMIT => 'option_commit',
+  OPT_COMMIT_MSG => 'option_commit_message',
 
   # Default values ( hash values )
   BRANCH_MASTER => 'master',
@@ -67,14 +73,14 @@ $VERSION = '0.1';
 
 sub new {
   my ( $class, %config ) = @_;
-
+  
   # Pass package config file name into the Config constructor.
-  $config{ GitPM::Config::FILE_NAME } = PACKAGE_FILE_NAME;
+  $config{ &GitPM::Config::FILE_NAME } = &PACKAGE_FILE_NAME;
 
-  my $self = { CONFIG => GitPM::Config->new( %config ) };
+  my $self = { &CONFIG => GitPM::Config->new( %config ) };
   bless( $self, $class );
 
-  $self->set_repository( $config{ REPOSITORY } );
+  $self->set_repository( $config{ &REPOSITORY } );
 
   return $self;
 }
@@ -86,99 +92,130 @@ sub new {
 
 sub display {
   my ( $self ) = @_;
-  return $self->{ CONFIG }->display();
+  return $self->{ &CONFIG }->display();
 }
 
 #-------------------------------------------------------------------------------
 
 sub set_display {
   my ( $self, $display ) = @_;
-  $self->{ CONFIG }->set_display( $display );
+  $self->{ &CONFIG }->set_display( $display );
 }
 
 #-------------------------------------------------------------------------------
 
 sub repository {
   my ( $self ) = @_;
-  return $self->{ REPOSITORY };
+  return $self->{ &REPOSITORY };
 }
 
 #-------------------------------------------------------------------------------
 
 sub set_repository {
   my ( $self, $repository ) = @_;
-
-  $self->{ REPOSITORY } = $repository;
-  $self->{ CONFIG }->set_path( $repository->wc_path() );
+  
+  unless ( ref $repository eq 'Git' ) {
+    return;
+  }
+  
+  $self->{ &REPOSITORY } = $repository;
+  $self->{ &CONFIG }->set_path( $repository->wc_path() );
 }
 
 #-------------------------------------------------------------------------------
 
 sub package_file {
   my ( $self ) = @_;
-  return $self->{ CONFIG }->file();
+  return $self->{ &CONFIG }->file();
 }
 
 #-------------------------------------------------------------------------------
 
 sub dependencies {
   my ( $self ) = @_;
-  return $self->{ CONFIG }->settings( DEPENDENCY );
+  return $self->{ &CONFIG }->settings( &DEPENDENCY );
 }
 
 #-------------------------------------------------------------------------------
 
 sub dependency {
   my ( $self, $path ) = @_;
-  return $self->{ CONFIG }->settings( DEPENDENCY, $path );
+  return $self->{ &CONFIG }->settings( &DEPENDENCY, $path );
 }
 
 #-------------------------------------------------------------------------------
 
 sub dependency_setting {
   my ( $self, $path, $variable ) = @_;
-  return $self->{ CONFIG }->named_setting( DEPENDENCY, $path, $variable );
+  return $self->{ &CONFIG }->named_setting( &DEPENDENCY, $path, $variable );
 }
 
 #-------------------------------------------------------------------------------
 
 sub set_dependency {
   my ( $self, $repo_url, %config ) = @_;
-
+    
   my $path = (
-      $config{ VAR_PATH }
-    ? $config{ VAR_PATH }
+      $config{ &VAR_PATH }
+    ? $config{ &VAR_PATH }
     : $self->parse_path( $repo_url )
   );
-
-  $self->{ CONFIG }->set_named_setting( DEPENDENCY,
+ 
+  $self->{ &CONFIG }->set_named_setting( &DEPENDENCY,
     $path,
     {
-      VAR_URL    => $repo_url,
-      VAR_PATH   => $path,
-      VAR_BRANCH => (
-          $config{ VAR_BRANCH }
-        ? $config{ VAR_BRANCH }
-        : BRANCH_MASTER
+      &VAR_URL    => $repo_url,
+      &VAR_PATH   => $path,      
+      &VAR_BRANCH => (
+          $config{ &VAR_BRANCH }
+        ? $config{ &VAR_BRANCH }
+        : &BRANCH_MASTER
       ),
 
-      VAR_COMMIT => (
-          $config{ VAR_COMMIT }
-        ? $config{ VAR_COMMIT }
-        : COMMIT_HEAD
+      &VAR_COMMIT => (
+          $config{ &VAR_COMMIT }
+        ? $config{ &VAR_COMMIT }
+        : &COMMIT_HEAD
       ),
     },
     TRUE
   );
+  
+  if ( $config{ &OPT_STORE } || $config{ &OPT_COMMIT } ) {
+    $self->store();
+    
+    if ( $config{ &OPT_COMMIT } ) {
+      $self->commit_package_file( $config{ &OPT_COMMIT_MSG } );  
+    }
+  }
 }
 
 #-------------------------------------------------------------------------------
 
 sub remove_dependencies {
-  my ( $self, @paths ) = @_;
-
-  foreach my $path ( @paths ) {
-    $self->{ CONFIG }->remove_named_setting( DEPENDENCY, $path );
+  my ( $self, $path, %config ) = @_;
+  
+  my @paths = (
+    ref $path eq 'ARRAY'
+    ? @$path
+    : ( $path ? ( $path ) : () )
+  );
+  
+  if ( ! @paths ) {
+    $self->{ &CONFIG }->remove_named_setting( &DEPENDENCY );
+  }
+  else {
+    foreach ( @paths ) {
+      $self->{ &CONFIG }->remove_named_setting( &DEPENDENCY, $_ );
+    }
+  }
+  
+  if ( $config{ &OPT_STORE } || $config{ &OPT_COMMIT } ) {
+    $self->store();
+    
+    if ( $config{ &OPT_COMMIT } ) {
+      $self->commit_package_file( $config{ &OPT_COMMIT_MSG } );  
+    }
   }
 }
 
@@ -210,7 +247,7 @@ sub render_dependency_list {
 
     foreach my $package ( @packages ) {
       my $variables = $self->dependency( $package );
-      my $repo_url  = $variables->{ VAR_URL };
+      my $repo_url  = $variables->{ &VAR_URL };
 
       $display->normal( sprintf " %-${display_length}s  [  %s  ]",
         $package, $repo_url );
@@ -236,14 +273,14 @@ sub render_dependency_list {
 
 sub load {
   my ( $self ) = @_;
-  $self->{ CONFIG }->load();
+  $self->{ &CONFIG }->load();
 }
 
 #-------------------------------------------------------------------------------
 
 sub store {
   my ( $self ) = @_;
-  $self->{ CONFIG }->store();
+  $self->{ &CONFIG }->store();
 }
 
 #*******************************************************************************
@@ -253,7 +290,7 @@ sub store {
 
 sub commit_package_file {
   my ( $self, $message ) = @_;
-  my $repo = $self->{ REPOSITORY };
+  my $repo = $self->{ &REPOSITORY };
 
   # Add the package file to the staged changes.
   $repo->command( 'add', $self->package_file() );

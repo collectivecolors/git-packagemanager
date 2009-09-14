@@ -8,6 +8,8 @@ package GitPM::Config;
 use strict;
 use warnings;
 
+use Data::Dump qw( dump );
+
 use GitPM::Display;
 
 #-------------------------------------------------------------------------------
@@ -25,6 +27,8 @@ use constant {
   DISPLAY => 'display',
 
   # Internal properties ( hash keys )
+  INITIALIZED => 'initialized',
+  
   SETTINGS => 'settings',
 
   NAMED_MAP => 'named_map',
@@ -56,9 +60,9 @@ sub new {
   my ( $class, %config ) = @_;
 
   my $self = {
-    SETTINGS => {
-      NAMED_MAP => {},
-      DATA      => {},
+    &SETTINGS => {
+      &NAMED_MAP => {},
+      &DATA      => {},
     },
   };
 
@@ -66,14 +70,14 @@ sub new {
 
   $self->set_display(
     (
-        $config{ DISPLAY }
-      ? $config{ DISPLAY }
+        $config{ &DISPLAY }
+      ? $config{ &DISPLAY }
       : GitPM::Display->new( %config )
     )
   );
 
-  $self->set_path( $config{ PATH } );
-  $self->set_file_name( $config{ FILE_NAME } );
+  $self->set_path( $config{ &PATH } );
+  $self->set_file_name( $config{ &FILE_NAME } );
 
   return $self;
 }
@@ -85,7 +89,7 @@ sub new {
 
 sub display {
   my ( $self ) = @_;
-  return $self->{ DISPLAY };
+  return $self->{ &DISPLAY };
 }
 
 #-------------------------------------------------------------------------------
@@ -93,7 +97,7 @@ sub display {
 sub set_display {
   my ( $self, $display ) = @_;
 
-  $self->{ DISPLAY } = $display;
+  $self->{ &DISPLAY } = $display;
 
   $display->debug( 'Resetting Package display object.' );
 }
@@ -102,7 +106,7 @@ sub set_display {
 
 sub file_name {
   my ( $self ) = @_;
-  return $self->{ FILE_NAME };
+  return $self->{ &FILE_NAME };
 }
 
 #-------------------------------------------------------------------------------
@@ -110,14 +114,14 @@ sub file_name {
 sub set_file_name {
   my ( $self, $file_name ) = @_;
 
-  $self->{ FILE_NAME } = $file_name;
+  $self->{ &FILE_NAME } = $file_name;
 }
 
 #-------------------------------------------------------------------------------
 
 sub path {
   my ( $self ) = @_;
-  return $self->{ PATH };
+  return $self->{ &PATH };
 }
 
 #-------------------------------------------------------------------------------
@@ -126,12 +130,14 @@ sub set_path {
   my ( $self, $path ) = @_;
   my $display = $self->display();
 
+  $path = ( $path ? $path : '' );
+
   # Check if the path ends with a trailing slash.
   unless ( !$path || $path =~ /\/$/ ) {
     $path .= '/';
   }
 
-  $self->{ PATH } = $path;
+  $self->{ &PATH } = $path;
 
   $display->debug( 'Setting path to : ' . $self->path() );
 }
@@ -147,7 +153,10 @@ sub file {
 
 sub is_named {
   my ( $self, $section ) = @_;
-  return $self->{ SETTINGS }{ NAMED_MAP }{ $section };
+  
+  $self->initialize();
+  
+  return $self->{ &SETTINGS }{ &NAMED_MAP }{ $section };
 }
 
 #-------------------------------------------------------------------------------
@@ -157,7 +166,7 @@ sub is_named {
 sub set_named {
   my ( $self, $section ) = @_;
 
-  $self->{ SETTINGS }{ NAMED_MAP }{ $section } = TRUE;
+  $self->{ &SETTINGS }{ &NAMED_MAP }{ $section } = TRUE;
 }
 
 #-------------------------------------------------------------------------------
@@ -167,15 +176,17 @@ sub set_named {
 sub remove_named {
   my ( $self, $section ) = @_;
 
-  delete $self->{ SETTINGS }{ NAMED_MAP }{ $section };
+  delete $self->{ &SETTINGS }{ &NAMED_MAP }{ $section };
 }
 
 #-------------------------------------------------------------------------------
 
 sub settings {
   my ( $self, $section, $name ) = @_;
+  
+  $self->initialize();
 
-  my $data = $self->{ SETTINGS }{ DATA };
+  my $data = $self->{ &SETTINGS }{ &DATA };
 
   if ( $section ) {
     if ( $name && $self->is_named( $section ) ) {
@@ -202,40 +213,45 @@ sub settings {
 sub clear_settings {
   my ( $self ) = @_;
 
-  $self->{ SETTINGS }{ DATA }      = {};
-  $self->{ SETTINGS }{ NAMED_MAP } = {};
+  $self->{ &SETTINGS }{ &DATA }      = {};
+  $self->{ &SETTINGS }{ &NAMED_MAP } = {};
 }
 
 #-------------------------------------------------------------------------------
 
 sub core_setting {
   my ( $self, $section, $variable ) = @_;
-  return $self->{ SETTINGS }{ DATA }{ $section }{ $variable };
+  
+  $self->initialize();
+  
+  return $self->{ &SETTINGS }{ &DATA }{ $section }{ $variable };
 }
 
 #-------------------------------------------------------------------------------
 
 sub set_core_setting {
   my ( $self, $section, $variable, $value ) = @_;
-
+  
+  $self->initialize();
+  
   if ( ref $variable eq 'HASH' ) {
 
     # If value is true, then overwrite existing variables.
     if ( $value ) {
-      $self->{ SETTINGS }{ DATA }{ $section } = $variable;
+      $self->{ &SETTINGS }{ &DATA }{ $section } = $variable;
     }
 
     # Else, set specified variables to values given.
     else {
       while ( my ( $key, $value ) = each %$variable ) {
-        $self->{ SETTINGS }{ DATA }{ $section }{ $key } = $value;
+        $self->{ &SETTINGS }{ &DATA }{ $section }{ $key } = $value;
       }
     }
   }
 
   # Set specified valiable to this value.
   else {
-    $self->{ SETTINGS }{ DATA }{ $section }{ $variable } = $value;
+    $self->{ &SETTINGS }{ &DATA }{ $section }{ $variable } = $value;
   }
 }
 
@@ -245,16 +261,18 @@ sub remove_core_setting {
   my ( $self, $section, $variable ) = @_;
   my $keep_section = FALSE;
 
-  if ( $variable ) {
-    delete $self->{ SETTINGS }{ DATA }{ $section }{ $variable };
+  $self->initialize();
 
-    if ( keys %{ $self->{ SETTINGS }{ DATA }{ $section } } ) {
+  if ( $variable ) {
+    delete $self->{ &SETTINGS }{ &DATA }{ $section }{ $variable };
+
+    if ( keys %{ $self->{ &SETTINGS }{ &DATA }{ $section } } ) {
       $keep_section = TRUE;
     }
   }
 
   unless ( $keep_section ) {
-    delete $self->{ SETTINGS }{ DATA }{ $section };
+    delete $self->{ &SETTINGS }{ &DATA }{ $section };
 
     # remove_named_setting() calls this function.
     $self->remove_named( $section );
@@ -265,7 +283,10 @@ sub remove_core_setting {
 
 sub named_setting {
   my ( $self, $section, $name, $variable ) = @_;
-  return $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $variable };
+  
+  $self->initialize();
+  
+  return $self->{ &SETTINGS }{ &DATA }{ $section }{ $name }{ $variable };
 }
 
 #-------------------------------------------------------------------------------
@@ -273,24 +294,26 @@ sub named_setting {
 sub set_named_setting {
   my ( $self, $section, $name, $variable, $value ) = @_;
 
+  $self->initialize();
+
   if ( ref $variable eq 'HASH' ) {
 
     # If value is true, then overwrite existing variables.
     if ( $value ) {
-      $self->{ SETTINGS }{ DATA }{ $section }{ $name } = $variable;
+      $self->{ &SETTINGS }{ &DATA }{ $section }{ $name } = $variable;
     }
 
     # Else, set specified variables to values given.
     else {
       while ( my ( $key, $value ) = each %$variable ) {
-        $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $key } = $value;
+        $self->{ &SETTINGS }{ &DATA }{ $section }{ $name }{ $key } = $value;
       }
     }
   }
 
   # Set specified valiable to this value.
   else {
-    $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $variable } = $value;
+    $self->{ &SETTINGS }{ &DATA }{ $section }{ $name }{ $variable } = $value;
   }
 
   $self->set_named( $section );
@@ -302,31 +325,45 @@ sub remove_named_setting {
   my ( $self, $section, $name, $variable ) = @_;
   my ( $keep_name, $keep_section );
 
-  if ( $variable ) {
-    delete $self->{ SETTINGS }{ DATA }{ $section }{ $name }{ $variable };
+  $self->initialize();
 
-    if ( keys %{ $self->{ SETTINGS }{ DATA }{ $section }{ $name } } ) {
+  if ( $variable ) {
+    delete $self->{ &SETTINGS }{ &DATA }{ $section }{ $name }{ $variable };
+
+    if ( keys %{ $self->{ &SETTINGS }{ &DATA }{ $section }{ $name } } ) {
       $keep_name    = TRUE;
       $keep_section = TRUE;
     }
   }
 
   if ( $name && !$keep_name ) {
-    delete $self->{ SETTINGS }{ DATA }{ $section }{ $name };
+    delete $self->{ &SETTINGS }{ &DATA }{ $section }{ $name };
 
-    if ( keys %{ $self->{ SETTINGS }{ DATA }{ $section } } ) {
+    if ( keys %{ $self->{ &SETTINGS }{ &DATA }{ $section } } ) {
       $keep_section = TRUE;
     }
   }
 
   unless ( $keep_section ) {
-    $self->remove_settings( $section );
+    $self->remove_core_setting( $section );
   }
 }
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # File storage
+#-------------------------------------------------------------------------------
+
+# INTERNAL USE ONLY.
+
+sub initialize {
+  my ( $self ) = @_;
+  
+  if ( ! $self->{ &INITIALIZED } ) {
+    $self->load();
+  }
+}
+
 #-------------------------------------------------------------------------------
 
 sub load {
@@ -370,6 +407,8 @@ sub load {
       }
     }
   }
+  
+  $self->{ &INITIALIZED } = TRUE;
 
   $display->verbose( 'Configuration file loaded successfully.' );
   close( HANDLE );

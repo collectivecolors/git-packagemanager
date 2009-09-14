@@ -25,7 +25,7 @@
 #
 #  This git command provides a package manager interface to the git submodule
 #  command structure.  Packages are libraries that are included in application
-#  source directories.  Some packages depend upon other packages.  But the 
+#  source directories.  Some packages depend upon other packages.  But the
 #  packages that are depended upon do not reside in a sub directory of the
 #  original package.  Packages are treated as submodules, but due to limitations
 #  with the handling of dependencies in the submodule commands, this command
@@ -36,7 +36,7 @@
 # [ add {repository} ]
 #
 #  The add dependency command includes a git package in your application source
-#  directory.  As the package is added and pulled, this script checks if a 
+#  directory.  As the package is added and pulled, this script checks if a
 #  .gitpackage file exists, and if so, adds and pulls all of the dependent
 #  packages into the source directory.  It performs this add in a recursive
 #  manner until all dependent packages have been added and pulled.  After it
@@ -54,7 +54,7 @@
 #
 # [ remove [ {path} ... ] ]
 #
-#   The remove dependency command removes a dependency from this submodule 
+#   The remove dependency command removes a dependency from this submodule
 #   repository.
 
 #*******************************************************************************
@@ -65,73 +65,61 @@
 use strict;
 use warnings;
 
-use constant {
-	# Boolean syntactic sugar
-	TRUE  => 1,
-	FALSE => 0,
-	# Commands
-	CMD_ADD    => 'add',
-	CMD_LIST   => 'list',
-	CMD_REMOVE => 'remove',
-	# Files
-	FILE_PACKAGE => '.gitpackage',
-	# Settings
-	COMMAND        => 'command',
-	REPO_PATH      => 'repo_path',
-	VERBOSE        => 'verbose',
-	COMMIT_FLAG    => 'commit',
-	COMMIT_MSG     => 'message',
-	INPUT          => 'input',
-	DEPENDENCY_MAP => 'dependency_map',
-	REMOVE_ALL     => 'remove_all',	
-};
-
 use Switch;
 
-# CPAN modules
-
-use Getopt::OO;
-
-# Git modules.
+use Data::Dump qw( dump );
 
 use Git;
+
+use GitPM::Param;
+use GitPM::Display;
+use GitPM::Package;
+
+#-------------------------------------------------------------------------------
+
+use constant {
+
+  # Boolean syntactic sugar
+  TRUE  => 1,
+  FALSE => 0,
+
+  # Commands
+  CMD_ADD    => 'add',
+  CMD_LIST   => 'list',
+  CMD_REMOVE => 'rm',
+
+  # Settings
+  COMMAND => 'command',
+  
+  # Command parameters.
+  INPUT => 'input',
+  
+  VAR_PATH => &GitPM::Package::VAR_PATH,
+  VAR_BRANCH => &GitPM::Package::VAR_BRANCH,
+  VAR_COMMIT => &GitPM::Package::VAR_COMMIT,
+  
+  OPT_STORE => &GitPM::Package::OPT_STORE,
+  OPT_COMMIT => &GitPM::Package::OPT_COMMIT,
+  OPT_COMMIT_MSG => &GitPM::Package::OPT_COMMIT_MSG,
+  
+  OPT_REMOVE_ALL => 'remove_all'
+};
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Command variables
 #-------------------------------------------------------------------------------
 
-# Repository information. ( Dies if no repository! )
-our $REPO = Git->repository();
+our $COMMAND = shift @ARGV;
+our $PARAMS  = \@ARGV;
 
-# Command settings.
-our %SETTINGS = (
-	COMMAND        => shift @ARGV,
-	PARAMETERS     => \@ARGV,
-	REPO_PATH      => $REPO->wc_path(),
-	DEPENDENCY_MAP => {},
+our $DISPLAY = GitPM::Display->new();
+
+# Single package instance.  ( current repository )
+our $PACKAGE = GitPM::Package->new(
+  &GitPM::Package::REPOSITORY => Git->repository(),
+  &GitPM::Package::DISPLAY    => $DISPLAY
 );
-
-#*******************************************************************************
-#-------------------------------------------------------------------------------
-# Command initialization
-#-------------------------------------------------------------------------------
-
-switch ($SETTINGS{COMMAND}) {
-	
-	case CMD_ADD {
-		command_add(); # Launch dependency add command	
-	}
-	case CMD_LIST {
-		command_list(); # Launch dependency list command
-	}
-	case CMD_REMOVE {
-		command_remove(); # Launch dependency remove command
-	}
-	else {
-		display_usage();	
-	}	
-}
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
@@ -139,565 +127,480 @@ switch ($SETTINGS{COMMAND}) {
 #-------------------------------------------------------------------------------
 
 sub display_usage {
-	display(
-		($SETTINGS{COMMAND} ? 'Invalid command specified.' 
-							: 'No command specified.'),
-		'',
-		'Supported dependency commands :',
-		'',
-		' git dependency add --help',
-		' git dependency list --help',
-		' git dependency remove --help'
-	);
+  $DISPLAY->normal(
+    '',
+    (
+      $COMMAND
+      ? 'Invalid dependency command specified.'
+      : 'No dependency command specified.'
+    ),
+    '',
+    'Supported dependency commands :',
+    '',
+    ' git dependency add --help     * Add a new dependency to this package.',
+    ' git dependency list --help    * List all dependencies for this package.',
+    ' git dependency rm --help      * Remove dependencies from this package.'
+  );
 }
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Dependency ADD command
 #-------------------------------------------------------------------------------
-
-# Command syntax
-#-----------------
 #
-# git-dependency add
-#  [ -h | --help ]
-#  [ -v | --verbose ] 
-#  [ -c | --commit ] 
-#  [ -m | --message {message} ] 
-#  {repository} ...
+our $command_add_help = <<'END';
+
+ Command syntax
+-----------------
+
+ git dependency add {repository_location}
+
+ Some common patterns of repository locations : ( [] means optional )
+
+  REMOTE SSH    : ssh://user@hostname/[directory/.../]
+                                      [my-info-]my.package.path[.git]
+  REMOTE HTTP   : http://hostname/[directory/.../]
+                                  [my-info-]my.package.path[.git]
+  REMOTE GITHUB : git@github.com:user/[directory/.../]
+                                      [my-info-]my.package.path[.git]
+
+ Options :
+
+  [ -h | --help ]               * Interupt command execution and return help.
+  [ -d | --debug ]              * Display debug information.
+  [ -v | --verbose ]            * Display more information than normal.
+  [ -c | --commit ]             * Commit changes to .gitpackage after adding
+                                  dependency.
+  [ -m | --message {message} ]  * Commit message ( if committing ).
+  [ -p | --path {path} ]        * Path to repository from base source path of
+                                  application.  If this is not given, then the
+                                  path is parsed from the repository name.
+                                  The repository url is parsed from the
+                                  following pattern :
+                                    [{my-info}-]{my.package.path}[.git]
+  [ -b | --branch {branch} ]    * Branch of repository required.  The default
+                                  is <master>.
+  [ -t | --tag {tag} ]          * Tag of repository branch required.  The
+                                  default is the most recent commit.
+                                  This can be a commit hash.  It is named tag
+                                  to avoid conflicts with the commit flag.
+
+END
 
 sub command_add {
-	
-	# Parse command settings.
-	command_add_settings(
-		Getopt::OO->new($SETTINGS{PARAMETERS}, command_add_options())
-	);
-		
-	verbose('Starting dependency add command.');
-	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
-	
-	# Load existing dependencies for this package.
-	load_dependencies();	
-	
-	# Add dependencies to .gitpackage file (overwrite if exists).
-	foreach my $repo (@{$SETTINGS{INPUT}}) {
-		my $path = find_repository_path($repo);
-		
-		verbose("Resolved path of package [ $repo ] to [ $path ]");
-		
-		$SETTINGS{DEPENDENCY_MAP}->{$path} = {
-			path => $path,
-			url =>  $repo,			
-		}
-	}
-	
-	# Store modified dependencies for this package.
-	store_dependencies();
-	
-	# Commit changes to the package file.
-	commit_changes();			
+  
+  # Command name.
+  $0 = 'git dependency add';
+
+  # Parse command settings.
+  my $settings =
+    command_add_settings( GitPM::Param->new( shift, command_add_options() ) );
+
+  # Begin add dependency.
+  $DISPLAY->verbose( 'Starting dependency add command.' );
+  
+  $PACKAGE->set_dependency(
+    
+    # Repository location.
+    $settings->{ &INPUT },
+    
+    # Dependency variables
+    &VAR_PATH   => $settings->{ &VAR_PATH },
+    &VAR_BRANCH => $settings->{ &VAR_BRANCH },
+    &VAR_COMMIT => $settings->{ &VAR_COMMIT },
+    
+    # Options
+    &OPT_STORE => TRUE,
+    
+    &OPT_COMMIT => $settings->{ &OPT_COMMIT },
+    &OPT_COMMIT_MSG => $settings->{ &OPT_COMMIT_MSG }
+  );
 }
 
 #-------------------------------------------------------------------------------
 
 sub command_add_options {
-	
-	my %options = (
-		other_values => {
-    	help => 'repository ...',
-		},
-	);
-	
-	commit_options(\%options);
-	display_options(\%options);
-	help_options(\%options);
-	
-	return %options;	
+  
+  my %options = (
+    
+    'help' => $command_add_help,
+
+    # Required.
+    'other_values' => { help => 'repository ...' },
+
+    # Optional.
+    '-p' => {
+      help     => 'See information for --path option.',
+      n_values => 1
+    },
+    '--path' => {
+      help     => 'Repository path from application base source directory.',
+      n_values => 1
+    },
+
+    '-b' => {
+      help     => 'See information for --branch option.',
+      n_values => 1
+    },
+    '--branch' => {
+      help => 'Branch required for this repository.  Defaults to < master >.',
+      n_values => 1
+    },
+
+    '-t' => {
+      help     => 'See information for --tag option.',
+      n_values => 1
+    },
+    '--tag' => {
+      help => 'Tag required for this repository.  Defaults to the last commit.',
+      n_values => 1
+    }
+  );
+
+  commit_options( \%options );
+  display_options( \%options );
+  help_options( \%options );
+
+  return %options;
 }
 
 #-------------------------------------------------------------------------------
 
 sub command_add_settings {
-	my $parser = shift;
-	
-	# Abort and show help information if requested.
-	parse_help_settings($parser);
-	
-	# Get command repositories.
-	if (!@{$parser->Values('other_values')}) {
-		display($parser->Help());
-		exit();
-	}	
-	
-	@{$SETTINGS{INPUT}} = $parser->Values('other_values');
-	
-	# Get extra command options.
-	parse_display_settings($parser);
-	parse_commit_settings($parser);	
+  my $parser   = shift;
+  my $settings = {};
+
+  # Abort and show help information if requested.
+  parse_help_settings( $parser );
+
+  if ( ! @{ $parser->Values( 'other_values' ) } ) {
+    $DISPLAY->normal( $parser->Help() );
+    exit();
+  }
+
+  parse_display_settings( $parser );
+  parse_commit_settings( $parser, $settings );
+
+  # Get command repository.
+  $settings->{ &INPUT } = $parser->Values( 'other_values' );
+  
+  # Get repository path, if specified.
+  if ( $parser->Values( '-p' ) ) {
+    $settings->{ &VAR_PATH } = $parser->Values( '-p' );
+  }
+  elsif ( $parser->Values( '--path' ) ) {
+    $settings->{ &VAR_PATH } = $parser->Values( '--path' );
+  }
+
+  # Get repository branch, if specified.
+  if ( $parser->Values( '-b' ) ) {
+    $settings->{ &VAR_BRANCH } = $parser->Values( '-b' );
+  }
+  elsif ( $parser->Values( '--branch' ) ) {
+    $settings->{ &VAR_BRANCH } = $parser->Values( '--branch' );
+  }
+  
+  # Get repository tag, if specified.
+  if ( $parser->Values( '-t' ) ) {
+    $settings->{ &VAR_COMMIT } = $parser->Values( '-t' );
+  }
+  elsif ( $parser->Values( '--tag' ) ) {
+    $settings->{ &VAR_COMMIT } = $parser->Values( '--tag' );
+  }
+  
+  return $settings;
 }
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Dependency LIST command
 #-------------------------------------------------------------------------------
-
-# Command syntax
-#-----------------
 #
-# git-dependency list
-#  [ -h | --help ]
-#  [ -v | --verbose ] 
+our $command_list_help = <<'END';
+
+ Command syntax
+-----------------
+
+ git dependency list
+
+ Options :
+
+  [ -h | --help ]               * Interupt command execution and return help.
+  [ -d | --debug ]              * Display debug information.
+  [ -v | --verbose ]            * Display more information than normal.
+  
+END
 
 sub command_list {
-	
-	# Parse command settings.
-	command_list_settings(
-		Getopt::OO->new($SETTINGS{PARAMETERS}, command_list_options())
-	);
-	
-	verbose('Starting dependency list command.');
-	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
-	
-	# Load existing dependencies for this package.
-	load_dependencies();
-	
-	# Print representation of dependencies for this package.
-	display_dependencies();			
+
+  # Command name.
+  $0 = 'git dependency list';
+
+  # Parse command settings.
+  command_list_settings(
+    GitPM::Param->new( shift, command_list_options() ) );
+
+  # Begin list dependencies.
+  $DISPLAY->verbose( 'Starting dependency list command.' );
+  
+  $PACKAGE->render_dependency_list();
 }
 
 #-------------------------------------------------------------------------------
 
 sub command_list_options {
-	
-	my %options = ();
-			
-	display_options(\%options);
-	help_options(\%options);
-		
-	return %options;	
+
+  my %options = (
+    'help' => $command_list_help,
+  );
+
+  display_options( \%options );
+  help_options( \%options );
+
+  return %options;
 }
 
 #-------------------------------------------------------------------------------
 
 sub command_list_settings {
-	my $parser = shift;
-	
-	# Get extra command options.
-	parse_help_settings($parser);
-	parse_display_settings($parser);
+  my $parser = shift;
+
+  # Get extra command options.
+  parse_help_settings( $parser );
+  parse_display_settings( $parser );
 }
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
 # Dependency REMOVE command
 #-------------------------------------------------------------------------------
-
-# Command syntax
-#-----------------
 #
-# git-dependency remove
-#  [ -h | --help ]
-#  [ -v | --verbose ]  
-#  [ -c | --commit ] 
-#  [ -m | --message {message} ] 
-#  [ {path} ... ]
+our $command_remove_help = <<'END';
+
+ Command syntax
+-----------------
+
+ git dependency rm -a
+ 
+   OR
+ 
+ git dependency rm {repository_path} ...
+
+ Options :
+
+  [ -h | --help ]               * Interupt command execution and return help.
+  [ -d | --debug ]              * Display debug information.
+  [ -v | --verbose ]            * Display more information than normal.
+  [ -c | --commit ]             * Commit changes to .gitpackage after adding
+                                  dependency.
+  [ -m | --message {message} ]  * Commit message ( if committing ).
+  [ -a | --all ]                * Remove all dependencies from this package.
+
+END
 
 sub command_remove {
-	
-	# Parse command settings.
-	command_remove_settings(
-		Getopt::OO->new($SETTINGS{PARAMETERS}, command_remove_options())
-	);
-	
-	verbose('Starting dependency remove command.');
-	verbose('Repository path: ' . $SETTINGS{REPO_PATH});
-	
-	# Load existing dependencies for this package.
-	load_dependencies();
-	
-	if ($SETTINGS{REMOVE_ALL}) {
-		%{$SETTINGS{DEPENDENCY_MAP}} = ();
-	}
-	elsif ($SETTINGS{INPUT}) {
-		# Remove all specified paths.
-		foreach my $path (@{$SETTINGS{INPUT}}) {		
-			delete $SETTINGS{DEPENDENCY_MAP}->{$path};	
-		}
-	}
-	
-	# Store modified dependencies for this package.
-	store_dependencies();
-	
-	# If specified, commit changes to the package file.
-	commit_changes();		
+
+  # Command name.
+  $0 = 'git dependency rm';
+
+  # Parse command settings.
+  my $settings = command_remove_settings(
+    GitPM::Param->new( shift, command_remove_options() ) );
+
+  # Begin remove dependencies.
+  $DISPLAY->verbose( 'Starting dependency remove command.' );
+  
+  $PACKAGE->remove_dependencies( 
+    
+    # Repository paths to remove.
+    (
+      $settings->{ &OPT_REMOVE_ALL }
+      ? undef
+      : $settings->{ &INPUT }
+    ), 
+    
+    # Options
+    &OPT_STORE => TRUE,
+    
+    &OPT_COMMIT => $settings->{ &OPT_COMMIT },
+    &OPT_COMMIT_MSG => $settings->{ &OPT_COMMIT_MSG }     
+  );
 }
 
 #-------------------------------------------------------------------------------
 
 sub command_remove_options {
-	
-	my %options = (
-		'-a' => {
-			help => 'Remove all dependencies.',
-		},
-		'--all' => {
-			help => 'See information for -a option.',	
-		},
-		'other_values' => {
-        	help => 'path ...',
-        },
-	);
-		
-	commit_options(\%options);
-	display_options(\%options);
-	help_options(\%options);
-	
-	return %options;	
+
+  my %options = (
+  
+    'help' => $command_remove_help,
+    
+    'other_values' => { help => 'path ...' },
+    
+    '-a'           => { help => 'Remove all dependencies.' },
+    '--all'        => { help => 'See information for -a option.' },    
+  );
+
+  commit_options( \%options );
+  display_options( \%options );
+  help_options( \%options );
+
+  return %options;
 }
 
 #-------------------------------------------------------------------------------
 
 sub command_remove_settings {
-	my $parser = shift;
-	
-	# Abort and show help information if requested.
-	parse_help_settings($parser);
-	
-	# Get command paths.
-	if (@{$parser->Values('other_values')}) {
-		$SETTINGS{INPUT} = $parser->Values('other_values');
-	}
-	
-	$SETTINGS{REMOVE_ALL} = $parser->Values('-a') || $parser->Values('--all');
-	
-	if (!$SETTINGS{INPUT} && !$SETTINGS{REMOVE_ALL}) {
-		display();
-		display('You should either specify packages' 
-				. ' or the --all option to remove all dependencies.');
-		display();
-		display($parser->Help());	
-	}
-	
-	# Get extra command options.
-	parse_display_settings($parser);
-	parse_commit_settings($parser);	
+  my $parser = shift;
+  my $settings = {};
+  
+  # Abort and show help information if requested.
+  parse_help_settings( $parser );
+
+  # Get command paths.
+  if ( @{ $parser->Values( 'other_values' ) } ) {
+    $settings->{ &INPUT } = $parser->Values( 'other_values' );
+  }
+
+  $settings->{ &OPT_REMOVE_ALL } = $parser->Values( '-a' )
+    || $parser->Values( '--all' );
+
+  if ( !$settings->{ &INPUT } && !$settings->{ &OPT_REMOVE_ALL } ) {
+    $DISPLAY->normal( 
+      '',
+      'You should either specify package paths'
+      . ' or the --all option to remove all dependencies.',
+      '',
+      $parser->Help() 
+    );
+  }
+
+  # Get extra command options.
+  parse_display_settings( $parser );
+  parse_commit_settings( $parser, $settings );
 }
 
 #*******************************************************************************
 #-------------------------------------------------------------------------------
-# Internal utility functions
+# Internal utilities
 #-------------------------------------------------------------------------------
 
 sub help_options {
-	
-	# Add to pre-existing options hash.
-	my $options = shift;
-	
-	$options->{'-h'} = {
-		help => 'Display help information.',	
-	};
-	$options->{'--help'} = {
-		help => 'See information for -h option.',
-	};
+  my $options = shift;
+
+  # Help options.
+  $options->{ '-h' }     = { help => 'Display help information.' };
+  $options->{ '--help' } = { help => 'See information for -h option.' };
 }
 
 #-------------------------------------------------------------------------------
 
 sub parse_help_settings {
-	my $parser = shift;
-	
-	if ($parser->Values('-h') || $parser->Values('--help')) {
-		display($parser->Help());
-		exit();
-	}	
+  my $parser = shift;
+
+  # Exit with help if help option given.
+  if ( $parser->Values( '-h' ) || $parser->Values( '--help' ) ) {
+    $DISPLAY->normal( $parser->Help() );
+    exit();
+  }
 }
 
 #-------------------------------------------------------------------------------
 
 sub display_options {
-	
-	# Add to pre-existing options hash.
-	my $options = shift;
-	
-	$options->{'-v'} = {
-       	help => 'Display more information.',
-    };
-    $options->{'--verbose'} = {
-    	help => 'See information for -v option.',
-    };	
+  my $options = shift;
+
+  # Debug options.
+  $options->{ '-d' }      = { help => 'Display debug information.' };
+  $options->{ '--debug' } = { help => 'See information for -d option.' };
+
+  # Verbose options.
+  $options->{ '-v' } = { help => 'Display more information than normal.' };
+  $options->{ '--verbose' } = { help => 'See information for -v option.' };
 }
 
 #-------------------------------------------------------------------------------
 
 sub parse_display_settings {
-	my $parser = shift;
-	
-	unless($parser->Values()) {
-		return;
-	}
-	
-	# Parse settings.
-	$SETTINGS{VERBOSE} = $parser->Values('-v') || $parser->Values('--verbose');
+  my $parser = shift;
+
+  unless ( $parser->Values() ) {
+    return;
+  }
+
+  # Parse settings.
+  $DISPLAY->set_debug( $parser->Values( '-d' )
+      || $parser->Values( '--debug' ) );
+
+  $DISPLAY->set_verbose( $parser->Values( '-v' )
+      || $parser->Values( '--verbose' ) );
 }
 
 #-------------------------------------------------------------------------------
 
-sub commit_options  {
-	
-	# Add to pre-existing options hash.
-	my $options = shift;
-	
-	# Commmit flag
-	$options->{'-c'} = {
-		help => 'Commit after this operation.',
-	};
-	$options->{'--commit'} = {
-		help => 'See information for -c option.'
-	};
-	
-	# Commit message
-	$options->{'-m'} = {
-		help => 'See information for --message option.',
-		n_values => 1,
-	};
-	$options->{'--message'} = {
-		help => [
-			'If you are commiting after this add dependency operation,',
-			'you may specify the committ message.   If no commit message',
-			'is given, then an editor is displayed.',
-			'This is similar to the commit command.',
-		],
-		n_values => 1,
-	};	
+sub commit_options {
+  my $options = shift;
+
+  # Commmit flag
+  $options->{ '-c' }       = { help => 'Commit after this operation.' };
+  $options->{ '--commit' } = { help => 'See information for -c option.' };
+
+  # Commit message
+  $options->{ '-m' } = {
+    help     => 'See information for --message option.',
+    n_values => 1
+  };
+  $options->{ '--message' } = {
+    help => [
+      'If you are commiting after this dependency operation,',
+      'you may specify the commit message.   If no commit message',
+      'is given, then an editor is displayed.',
+      'This is similar to the commit command.'
+    ],
+    n_values => 1
+  };
 }
 
 #-------------------------------------------------------------------------------
 
 sub parse_commit_settings {
-	my $parser = shift;
-	
-	unless ($parser->Values()) {
-		return;
-	}
-	
-	# Parse settings.
-	$SETTINGS{COMMIT_FLAG} = $parser->Values('-c') 
-							|| $parser->Values('--commit');
-							
-	if ($parser->Values('-m')) {
-		$SETTINGS{COMMIT_MSG} = $parser->Values('-m');
-	}
-	elsif ($parser->Values('--message')) {
-		$SETTINGS{COMMIT_MSG} = $parser->Values('--message');	
-	}	
+  my ( $parser, $settings ) = @_;
+
+  unless ( $parser->Values() ) {
+    return;
+  }
+
+  # Parse settings.
+  $settings->{ &OPT_COMMIT } = $parser->Values( '-c' )
+    || $parser->Values( '--commit' );
+
+  if ( $parser->Values( '-m' ) ) {
+    $settings->{ &OPT_COMMIT_MSG } = $parser->Values( '-m' );
+  }
+  elsif ( $parser->Values( '--message' ) ) {
+    $settings->{ &OPT_COMMIT_MSG } = $parser->Values( '--message' );
+  }
+}
+
+#*******************************************************************************
+#-------------------------------------------------------------------------------
+# Command initialization
+#-------------------------------------------------------------------------------
+
+switch ( $COMMAND ) {
+  
+  case &CMD_ADD {
+    command_add( $PARAMS );    # Launch dependency add command
+    }
+    case &CMD_LIST {
+    #command_list( $PARAMS );    # Launch dependency list command
+    }
+    case &CMD_REMOVE {
+    #command_remove( $PARAMS );    # Launch dependency remove command
+    }
+    else {
+    display_usage( $PARAMS );
+  }
 }
 
 #-------------------------------------------------------------------------------
-
-sub display_dependencies {
-	my %packages       = ();
-	my $display_length = 0;
-	
-	# Gather info about current packages.
-	foreach my $package (keys %{$SETTINGS{DEPENDENCY_MAP}}) {
-		$packages{$package} = $SETTINGS{DEPENDENCY_MAP}->{$package}{url};
-		$display_length = (length $package > $display_length ? length $package 
-															 : $display_length);		
-	}
-	
-	# Display current packages.
-	if ($display_length) {
-		display();
-	
-		foreach (sort keys %packages) {
-			display(sprintf " %-${display_length}s  [  %s  ]", 
-					$_, $packages{$_});
-		}
-	}
-	else {
-		display('No dependencies registered.');
-	}
-}
-
-#-------------------------------------------------------------------------------
-
-sub load_dependencies {
-	
-	# Initialize dependency map for current repo.
-	my $package_file = $SETTINGS{REPO_PATH} . FILE_PACKAGE;
-		
-	verbose('Loading package file : ' . $package_file);
-	open(HANDLE, $package_file) or return;
-	
-	verbose('Package file opened successfully.');
-	
-	# Import packages.
-	my $package;
-	
-	while (<HANDLE>) {
-		# Strip whitespace.
-		s/\s*//g;
-		
-		next unless ($_);
-			
-		# If we come across a new package, change packages.
-		if (/^\[dependency"?([^"\]]+)"?\]$/i) {
-			$package = $1;
-			verbose('Loading package : ' . $package);	
-		}
-		elsif (/^\[.+\]$/) {
-			$package = FALSE;
-		}
-		elsif ($package) {
-				
-			# Split variable and value on equals sign.
-			my ($variable, $value) = split(/\=/);
-			
-			verbose("Setting package variable [ $variable ]"
-					. " to value [ $value ]");
-			
-			$SETTINGS{DEPENDENCY_MAP}->{$package}{$variable} = $value; 
-		}	
-	}
-	
-	verbose('Dependencies loaded successfully.');
-	close(HANDLE);
-}
-
-#-------------------------------------------------------------------------------
-
-sub store_dependencies {
-	
-	# Store dependency map for current repo.
-	my $package_file = $SETTINGS{REPO_PATH} . FILE_PACKAGE;
-	my @lines = load_exclude_info($package_file, 'dependency');
-	
-	if (! @lines && ! keys %{$SETTINGS{DEPENDENCY_MAP}}) {
-		verbose('Removing package file : ' . $package_file);
-		unlink $package_file;
-		return;		
-	}
-			
-	verbose('Writing package file : ' . $package_file);
-	open(HANDLE, ">$package_file") or die $!;
-	
-	verbose('Package file opened successfully.');
-	
-	# Always write in same order. (for versioning)
-	foreach my $package (sort keys %{$SETTINGS{DEPENDENCY_MAP}}) {
-		
-		push(@lines, "[dependency \"$package\"]\n");
-		
-		my $variables = $SETTINGS{DEPENDENCY_MAP}->{$package};
-		foreach (sort keys %$variables) {
-			push(@lines, "  $_ = " . $variables->{$_} . "\n");	
-		}			
-	}
-	
-	print HANDLE @lines;	
-	
-	verbose('Dependencies saved successfully.');
-	close(HANDLE);
-}
-
-#-------------------------------------------------------------------------------
-
-sub load_exclude_info {
-	my ($filename, $exclude) = @_;
-	
-	my @lines   = ();
-	my $include = TRUE;
-	
-	open HANDLE, $filename or return;
-
-	while (<HANDLE>) {
-		my $line = $_;
-			
-		# Strip whitespace.
-		s/\s*//g;
-		
-		next unless ($_);		
-			
-		if (/^\[$exclude.+\]$/i) {
-			$include = FALSE;	
-		}
-		elsif (/^\[.+\]$/) {
-			$include = TRUE;
-			push(@lines, $line);	
-		}
-		elsif ($include) {
-			push(@lines, $line);	
-		}		
-	}	
-	close HANDLE;
-	
-	return @lines;	
-}
-
-#-------------------------------------------------------------------------------
-
-sub find_repository_path {
-	my @repo_parts = split(/\//, shift);
-	
-	# Remove everything but the file name.
-	my $path = pop(@repo_parts);
-	
-	# Remove anything before the last dash in the file name.
-	$path =~ s/^([^-]*-)*//;
-	
-	# Remove the git extension from the file.
-	$path =~ s/\.git$//i;
-	
-	# Replace dot separators with forward slashes.
-	$path =~ s/\./\//g;
-	
-	return $path;	
-}
-
-#-------------------------------------------------------------------------------
-
-sub commit_changes {
-	if ($SETTINGS{COMMIT_FLAG}) {
-		# Add the package file to the staged changes.
-		$REPO->command('add', $SETTINGS{REPO_PATH} . FILE_PACKAGE);
-		
-		# Commit changes.
-		if ($SETTINGS{COMMIT_MSG}) {
-			$REPO->command('commit', '-m ' . $SETTINGS{COMMIT_MSG});	
-		}
-		else {
-			# Run this through system, since it is an interactive command.
-			system('git commit');
-		}
-	}
-}
-
-#-------------------------------------------------------------------------------
-
-sub display {
-	# If no input given, assume newline.
-	unless (@_) {
-		print "\n";
-		return;
-	}
-	
-	# If more than one parameter, assume multiple line text as array.
-	if (@_ > 1) {
-		foreach my $line (@_) {
-			print $line . "\n";
-		}
-	}
-	# If single parameter, print one line.
-	else {
-		print $_[0] . "\n";
-	}	
-}
-
-#-------------------------------------------------------------------------------
-
-sub verbose {
-	# Only print if verbose flag was set.
-	if ($SETTINGS{VERBOSE}) {
-		display(@_);		
-	}	
-}
