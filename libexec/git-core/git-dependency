@@ -67,8 +67,6 @@ use warnings;
 
 use Switch;
 
-use Data::Dump qw( dump );
-
 use Git;
 
 use GitPM::Param;
@@ -282,7 +280,7 @@ sub command_add_settings {
   parse_commit_settings( $parser, $settings );
 
   # Get command repository.
-  $settings->{ &INPUT } = $parser->Values( 'other_values' );
+  $settings->{ &INPUT } = shift @{ $parser->Values( 'other_values' ) };
   
   # Get repository path, if specified.
   if ( $parser->Values( '-p' ) ) {

@@ -100,8 +100,6 @@ require Exporter;
 $VERSION = '0.07';
 $Revision = '$Id:$';
 
-use Data::Dump qw( dump );
-
 =head1 NAME
 
 Getopt::OO - An object oriented command line parser.  It handles

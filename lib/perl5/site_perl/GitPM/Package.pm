@@ -8,8 +8,6 @@ package GitPM::Package;
 use strict;
 use warnings;
 
-use Data::Dump qw( dump );
-
 use Git;
 
 use GitPM::Display;
@@ -160,7 +158,7 @@ sub set_dependency {
     ? $config{ &VAR_PATH }
     : $self->parse_path( $repo_url )
   );
- 
+  
   $self->{ &CONFIG }->set_named_setting( &DEPENDENCY,
     $path,
     {

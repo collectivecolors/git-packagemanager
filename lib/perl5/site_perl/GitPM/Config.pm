@@ -8,8 +8,6 @@ package GitPM::Config;
 use strict;
 use warnings;
 
-use Data::Dump qw( dump );
-
 use GitPM::Display;
 
 #-------------------------------------------------------------------------------
@@ -99,7 +97,7 @@ sub set_display {
 
   $self->{ &DISPLAY } = $display;
 
-  $display->debug( 'Resetting Package display object.' );
+  $display->debug( 'Setting configuration display object.' );
 }
 
 #-------------------------------------------------------------------------------
@@ -164,8 +162,7 @@ sub is_named {
 # INTERNAL USE ONLY.
 
 sub set_named {
-  my ( $self, $section ) = @_;
-
+  my ( $self, $section ) = @_;  
   $self->{ &SETTINGS }{ &NAMED_MAP }{ $section } = TRUE;
 }
 
@@ -175,7 +172,6 @@ sub set_named {
 
 sub remove_named {
   my ( $self, $section ) = @_;
-
   delete $self->{ &SETTINGS }{ &NAMED_MAP }{ $section };
 }
 
@@ -212,9 +208,12 @@ sub settings {
 
 sub clear_settings {
   my ( $self ) = @_;
+  my $display = $self->display();
 
   $self->{ &SETTINGS }{ &DATA }      = {};
   $self->{ &SETTINGS }{ &NAMED_MAP } = {};
+  
+  $display->debug( 'Clearing configuration settings.' );
 }
 
 #-------------------------------------------------------------------------------
@@ -231,6 +230,7 @@ sub core_setting {
 
 sub set_core_setting {
   my ( $self, $section, $variable, $value ) = @_;
+  my $display = $self->display();
   
   $self->initialize();
   
@@ -239,12 +239,17 @@ sub set_core_setting {
     # If value is true, then overwrite existing variables.
     if ( $value ) {
       $self->{ &SETTINGS }{ &DATA }{ $section } = $variable;
+      
+      $display->debug( "Overwriting $section with variables : ", '',
+                       $display->dump_if_debug( $variable ) );
     }
 
     # Else, set specified variables to values given.
     else {
       while ( my ( $key, $value ) = each %$variable ) {
         $self->{ &SETTINGS }{ &DATA }{ $section }{ $key } = $value;
+        
+        $display->debug( "Setting $section $key to '$value'" );
       }
     }
   }
@@ -252,6 +257,8 @@ sub set_core_setting {
   # Set specified valiable to this value.
   else {
     $self->{ &SETTINGS }{ &DATA }{ $section }{ $variable } = $value;
+    
+    $display->debug( "Setting $section $variable to '$value'" );
   }
 }
 
@@ -259,12 +266,16 @@ sub set_core_setting {
 
 sub remove_core_setting {
   my ( $self, $section, $variable ) = @_;
+  my $display = $self->display();
+  
   my $keep_section = FALSE;
 
   $self->initialize();
 
   if ( $variable ) {
     delete $self->{ &SETTINGS }{ &DATA }{ $section }{ $variable };
+    
+    $display->debug( "Removing $section $variable" );
 
     if ( keys %{ $self->{ &SETTINGS }{ &DATA }{ $section } } ) {
       $keep_section = TRUE;
@@ -273,6 +284,8 @@ sub remove_core_setting {
 
   unless ( $keep_section ) {
     delete $self->{ &SETTINGS }{ &DATA }{ $section };
+    
+    $display->debug( "Removing section $section" );
 
     # remove_named_setting() calls this function.
     $self->remove_named( $section );
@@ -293,6 +306,7 @@ sub named_setting {
 
 sub set_named_setting {
   my ( $self, $section, $name, $variable, $value ) = @_;
+  my $display = $self->display();
 
   $self->initialize();
 
@@ -301,12 +315,17 @@ sub set_named_setting {
     # If value is true, then overwrite existing variables.
     if ( $value ) {
       $self->{ &SETTINGS }{ &DATA }{ $section }{ $name } = $variable;
+      
+      $display->debug( "Overwriting $section '$name' with variables : ", '',
+                       $display->dump_if_debug( $variable ) );
     }
 
     # Else, set specified variables to values given.
     else {
       while ( my ( $key, $value ) = each %$variable ) {
         $self->{ &SETTINGS }{ &DATA }{ $section }{ $name }{ $key } = $value;
+        
+        $display->debug( "Setting $section '$name' $key to '$value'" );
       }
     }
   }
@@ -314,6 +333,8 @@ sub set_named_setting {
   # Set specified valiable to this value.
   else {
     $self->{ &SETTINGS }{ &DATA }{ $section }{ $name }{ $variable } = $value;
+    
+    $display->debug( "Setting $section '$name' $variable to '$value'" );
   }
 
   $self->set_named( $section );
@@ -323,12 +344,16 @@ sub set_named_setting {
 
 sub remove_named_setting {
   my ( $self, $section, $name, $variable ) = @_;
+  my $display = $self->display();
+  
   my ( $keep_name, $keep_section );
 
   $self->initialize();
 
   if ( $variable ) {
     delete $self->{ &SETTINGS }{ &DATA }{ $section }{ $name }{ $variable };
+    
+    $display->debug( "Removing $section '$name' $variable" );
 
     if ( keys %{ $self->{ &SETTINGS }{ &DATA }{ $section }{ $name } } ) {
       $keep_name    = TRUE;
@@ -338,6 +363,8 @@ sub remove_named_setting {
 
   if ( $name && !$keep_name ) {
     delete $self->{ &SETTINGS }{ &DATA }{ $section }{ $name };
+    
+    $display->debug( "Removing $section '$name'" );
 
     if ( keys %{ $self->{ &SETTINGS }{ &DATA }{ $section } } ) {
       $keep_section = TRUE;
@@ -358,8 +385,15 @@ sub remove_named_setting {
 
 sub initialize {
   my ( $self ) = @_;
+  my $display = $self->display();
   
   if ( ! $self->{ &INITIALIZED } ) {
+    
+    # Prevent recursive loading.
+    $self->{ &INITIALIZED } = TRUE;
+      
+    $display->debug( "Configuration initializing." );
+    
     $self->load();
   }
 }
@@ -371,7 +405,7 @@ sub load {
   my $display = $self->display();
 
   $display->verbose( 'Loading configuration file : ' . $self->file() );
-
+  
   # Import package section configurations.
   unless ( open( HANDLE, $self->file() ) ) {
     $display->debug( 'File open failed with error : ' . $! );
@@ -390,14 +424,12 @@ sub load {
     if ( /^\[([^"\]]+)"?([^"\]]+)*"?\]$/ ) {
       $section = $1;
       $name    = $2;
-
+      
       $display->debug(
         "Loading section : $section" . ( $name ? " [ $name ]" : '' ) );
     }
     elsif ( $section ) {
       my ( $variable, $value ) = split( /\=/ );
-
-      $display->debug( "Setting variable [ $variable ] to value [ $value ]" );
 
       if ( $name ) {
         $self->set_named_setting( $section, $name, $variable, $value );
@@ -408,8 +440,6 @@ sub load {
     }
   }
   
-  $self->{ &INITIALIZED } = TRUE;
-
   $display->verbose( 'Configuration file loaded successfully.' );
   close( HANDLE );
 }
@@ -418,7 +448,6 @@ sub load {
 
 sub store {
   my ( $self ) = @_;
-
   my $display = $self->display();
 
   my $file     = $self->file();
@@ -436,26 +465,36 @@ sub store {
   $display->debug( "File opened successfully." );
 
   # Always write in same order. (for versioning)
+  my $first = TRUE;  
   foreach my $section ( @sections ) {
 
     if ( $self->is_named( $section ) ) {
       foreach my $name ( $self->settings( $section ) ) {
-        print HANDLE "[$section \"$name\"]\n";
+        print HANDLE ( ! $first ? "\n" : '' ) . "[$section \"$name\"]\n";
+        
+        $display->debug( "Storing section : $section [ $name ]" );
 
         foreach my $variable ( $self->settings( $section, $name ) ) {
           my $value = $self->named_setting( $section, $name, $variable );
           print HANDLE "  $variable = $value\n";
+          
+          $display->debug( "Storing $section '$name' $variable with '$value'" );
         }
       }
     }
     else {
-      print HANDLE "[$section]\n";
+      print HANDLE ( ! $first ? "\n" : '' ) . "[$section]\n";
+      
+      $display->debug( "Storing section : $section" );
 
       foreach my $variable ( $self->settings( $section ) ) {
         my $value = $self->core_setting( $section, $variable );
         print HANDLE "  $variable = $value\n";
+        
+        $display->debug( "Storing $section $variable with '$value'" );
       }
     }
+    $first = FALSE;
   }
   $display->verbose( 'Configuration file stored successfully.' );
   close( HANDLE );
