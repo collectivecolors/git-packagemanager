@@ -185,7 +185,7 @@ sub settings {
   my $data = $self->{ &SETTINGS }{ &DATA };
 
   if ( $section ) {
-    if ( $name && $self->is_named( $section ) ) {
+    if ( $name ) {
       if ( wantarray ) {
         return sort keys %{ $data->{ $section }{ $name } };
       }

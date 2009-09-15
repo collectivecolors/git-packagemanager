@@ -34,9 +34,12 @@ use constant {
   VAR_PATH   => 'path',
   VAR_BRANCH => 'branch',
   VAR_COMMIT => 'commit',
-  
+
+  OPT_RESET => 'option_reset',
+
   OPT_STORE => 'option_store',
-  OPT_COMMIT => 'option_commit',
+
+  OPT_COMMIT     => 'option_commit',
   OPT_COMMIT_MSG => 'option_commit_message',
 
   # Default values ( hash values )
@@ -71,7 +74,7 @@ $VERSION = '0.1';
 
 sub new {
   my ( $class, %config ) = @_;
-  
+
   # Pass package config file name into the Config constructor.
   $config{ &GitPM::Config::FILE_NAME } = &PACKAGE_FILE_NAME;
 
@@ -111,11 +114,11 @@ sub repository {
 
 sub set_repository {
   my ( $self, $repository ) = @_;
-  
+
   unless ( ref $repository eq 'Git' ) {
     return;
   }
-  
+
   $self->{ &REPOSITORY } = $repository;
   $self->{ &CONFIG }->set_path( $repository->wc_path() );
 }
@@ -152,18 +155,19 @@ sub dependency_setting {
 
 sub set_dependency {
   my ( $self, $repo_url, %config ) = @_;
-    
+
   my $path = (
       $config{ &VAR_PATH }
     ? $config{ &VAR_PATH }
     : $self->parse_path( $repo_url )
   );
-  
-  $self->{ &CONFIG }->set_named_setting( &DEPENDENCY,
+
+  $self->{ &CONFIG }->set_named_setting(
+    &DEPENDENCY,
     $path,
     {
       &VAR_URL    => $repo_url,
-      &VAR_PATH   => $path,      
+      &VAR_PATH   => $path,
       &VAR_BRANCH => (
           $config{ &VAR_BRANCH }
         ? $config{ &VAR_BRANCH }
@@ -176,14 +180,18 @@ sub set_dependency {
         : &COMMIT_HEAD
       ),
     },
-    TRUE
+    (
+      exists $config{ &OPT_RESET }
+      ? $config{ &OPT_RESET }
+      : TRUE
+    )
   );
-  
+
   if ( $config{ &OPT_STORE } || $config{ &OPT_COMMIT } ) {
     $self->store();
-    
+
     if ( $config{ &OPT_COMMIT } ) {
-      $self->commit_package_file( $config{ &OPT_COMMIT_MSG } );  
+      $self->commit_package_file( $config{ &OPT_COMMIT_MSG } );
     }
   }
 }
@@ -193,31 +201,31 @@ sub set_dependency {
 sub remove_dependencies {
   my ( $self, $path, %config ) = @_;
   my $display = $self->display();
-  
+
   my @paths = (
     ref $path eq 'ARRAY'
     ? @$path
     : ( $path ? ( $path ) : () )
   );
-  
-  if ( ! @paths ) {
+
+  if ( !@paths ) {
     $display->debug( 'Removing all dependencies.' );
     $self->{ &CONFIG }->remove_named_setting( &DEPENDENCY );
   }
   else {
-    $display->debug( "Removing dependency paths.\n", 
-                     $display->dump_if_debug( \@paths ) );
-                     
+    $display->debug( "Removing dependency paths.\n",
+      $display->dump_if_debug( \@paths ) );
+
     foreach ( @paths ) {
       $self->{ &CONFIG }->remove_named_setting( &DEPENDENCY, $_ );
     }
   }
-  
+
   if ( $config{ &OPT_STORE } || $config{ &OPT_COMMIT } ) {
     $self->store();
-    
+
     if ( $config{ &OPT_COMMIT } ) {
-      $self->commit_package_file( $config{ &OPT_COMMIT_MSG } );  
+      $self->commit_package_file( $config{ &OPT_COMMIT_MSG } );
     }
   }
 }
@@ -251,24 +259,24 @@ sub render_dependency_list {
     foreach my $package ( @packages ) {
       my $variables = $self->dependency( $package );
       my $repo_url  = $variables->{ &VAR_URL };
-      
+
       $display->normal( " $package\n" );
-            
+
       my $max_variable_length = 0;
-      
+
       foreach my $key ( keys %$variables ) {
         my $key_length = length $key;
-        
+
         $max_variable_length = (
-          $key_length > $max_variable_length
+            $key_length > $max_variable_length
           ? $key_length
           : $max_variable_length
-        );  
+        );
       }
 
       while ( my ( $variable, $value ) = each %$variables ) {
-        $display->normal( 
-          sprintf "   %-${max_variable_length}s  =  '%s'", $variable, $value );
+        $display->normal( sprintf "   %-${max_variable_length}s  =  '%s'",
+          $variable, $value );
       }
 
       $display->normal();

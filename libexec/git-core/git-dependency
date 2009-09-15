@@ -83,6 +83,7 @@ use constant {
 
   # Commands
   CMD_ADD    => 'add',
+  CMD_EDIT   => 'edit',
   CMD_LIST   => 'list',
   CMD_REMOVE => 'rm',
 
@@ -90,11 +91,12 @@ use constant {
   COMMAND => 'command',
   
   # Command parameters.
-  INPUT => 'input',
-  
+  VAR_URL => &GitPM::Package::VAR_URL,
   VAR_PATH => &GitPM::Package::VAR_PATH,
   VAR_BRANCH => &GitPM::Package::VAR_BRANCH,
   VAR_COMMIT => &GitPM::Package::VAR_COMMIT,
+  
+  OPT_RESET => &GitPM::Package::OPT_RESET,
   
   OPT_STORE => &GitPM::Package::OPT_STORE,
   OPT_COMMIT => &GitPM::Package::OPT_COMMIT,
@@ -136,6 +138,7 @@ sub display_usage {
     'Supported dependency commands :',
     '',
     ' git dependency add --help     * Add a new dependency to this package.',
+    ' git dependency edit --help    * Edit an existing dependency in this package.',
     ' git dependency list --help    * List all dependencies for this package.',
     ' git dependency rm --help      * Remove dependencies from this package.'
   );
@@ -184,7 +187,7 @@ our $command_add_help = <<'END';
   [ -b | --branch {branch} ]    * Branch of repository required.  The default
                                   is <master>.
   [ -t | --tag {tag} ]          * Tag of repository branch required.  The
-                                  default is the most recent commit.
+                                  default is the most recent commit, <HEAD>.
                                   This can be a commit hash.  It is named tag
                                   to avoid conflicts with the commit flag.
 
@@ -205,7 +208,7 @@ sub command_add {
   $PACKAGE->set_dependency(
     
     # Repository location.
-    $settings->{ &INPUT },
+    $settings->{ &VAR_URL },
     
     # Dependency variables
     &VAR_PATH   => $settings->{ &VAR_PATH },
@@ -285,7 +288,7 @@ sub command_add_settings {
   parse_commit_settings( $parser, $settings );
 
   # Get command repository.
-  $settings->{ &INPUT } = shift @{ $parser->Values( 'other_values' ) };
+  $settings->{ &VAR_URL } = shift @{ $parser->Values( 'other_values' ) };
   
   # Get repository path, if specified.
   if ( $parser->Values( '-p' ) ) {
@@ -309,6 +312,202 @@ sub command_add_settings {
   }
   elsif ( $parser->Values( '--tag' ) ) {
     $settings->{ &VAR_COMMIT } = $parser->Values( '--tag' );
+  }
+  
+  return $settings;
+}
+
+#*******************************************************************************
+#-------------------------------------------------------------------------------
+# Dependency EDIT command
+#-------------------------------------------------------------------------------
+#
+our $command_edit_help = <<'END';
+
+ Command syntax
+-----------------
+
+ git dependency edit {repository_path} [ {repository_location} ]
+ 
+ 
+ Some common patterns of repository locations : ( [] means optional )
+
+  REMOTE SSH    : ssh://user@hostname/[directory/.../]
+                                      [my-info-]my.package.path[.git]
+  REMOTE HTTP   : http://hostname/[directory/.../]
+                                  [my-info-]my.package.path[.git]
+  REMOTE GITHUB : git@github.com:user/[directory/.../]
+                                      [my-info-]my.package.path[.git]
+
+ Options :
+
+  [ -h | --help ]               * Interupt command execution and return help.
+  [ -d | --debug ]              * Display debug information.
+  [ -v | --verbose ]            * Display more information than normal.
+  [ -c | --commit ]             * Commit changes to .gitpackage after editing
+                                  dependency.
+  [ -m | --message {message} ]  * Commit message ( if committing ).
+  [ -r | --reset ]              * Reset non specified dependency variables
+                                  to the defaults.  This flag does not reset
+                                  the dependency location.  If you do not 
+                                  specify the location, then the existing
+                                  location is used.  This way you can change
+                                  the branch or tag without modifying or 
+                                  specifying the repository location.
+  [ -b | --branch {branch} ]    * Branch of repository required.  The default
+                                  is <master>.
+  [ -t | --tag {tag} ]          * Tag of repository branch required.  The
+                                  default is the most recent commit, <HEAD>.
+                                  This can be a commit hash.  It is named tag
+                                  to avoid conflicts with the commit flag.
+
+END
+
+sub command_edit {
+  
+  # Command name.
+  $0 = 'git dependency edit';
+
+  # Parse command settings.
+  my $settings =
+    command_edit_settings( GitPM::Param->new( shift, command_edit_options() ) );
+
+  # Begin add dependency.
+  $DISPLAY->verbose( 'Starting dependency edit command.' );
+  
+  # Don't continue unless dependency exists.
+  unless ( $PACKAGE->dependency( $settings->{ &VAR_PATH } ) ) {
+    $DISPLAY->normal(
+      '', 
+      "Dependency '" . $settings->{ &VAR_PATH } . "' does not exist yet.",
+      '',
+      "Run 'git dependency add' to add a new dependency for this path." 
+    );    
+    return;  
+  }
+  
+  $PACKAGE->set_dependency(
+    
+    # Repository location.
+    $settings->{ &VAR_URL },
+    
+    # Dependency variables
+    &VAR_PATH   => $settings->{ &VAR_PATH },
+    
+    &VAR_BRANCH => $settings->{ &VAR_BRANCH },    
+    &VAR_COMMIT => $settings->{ &VAR_COMMIT },
+    
+    # Options
+    &OPT_RESET => $settings->{ &OPT_RESET },
+    
+    &OPT_STORE => TRUE,
+    
+    &OPT_COMMIT => $settings->{ &OPT_COMMIT },
+    &OPT_COMMIT_MSG => $settings->{ &OPT_COMMIT_MSG }
+  );
+}
+
+#-------------------------------------------------------------------------------
+
+sub command_edit_options {
+  
+  my %options = (
+    
+    'help' => $command_edit_help,
+
+    # Required.
+    'other_values' => { help => 'repository_path [ repository_url ]' },
+
+    # Optional.
+    '-r' => {
+      help     => [
+        'Reset non specified dependency variables to the defaults.', 
+        'This flag does not reset the dependency location.'
+      ]
+    },
+    '--reset' => {
+      help     => 'See information for -r option.'
+    },
+
+    '-b' => {
+      help     => 'See information for --branch option.',
+      n_values => 1
+    },
+    '--branch' => {
+      help => 'Branch required for this repository.  Defaults to < master >.',
+      n_values => 1
+    },
+
+    '-t' => {
+      help     => 'See information for --tag option.',
+      n_values => 1
+    },
+    '--tag' => {
+      help => 'Tag required for this repository.  Defaults to the last commit.',
+      n_values => 1
+    }
+  );
+
+  commit_options( \%options );
+  display_options( \%options );
+  help_options( \%options );
+  
+  return %options;
+}
+
+#-------------------------------------------------------------------------------
+
+sub command_edit_settings {
+  my $parser   = shift;
+  my $settings = {};
+  
+  my $parameters = $parser->Values( 'other_values' );
+
+  # Abort and show help information if requested.
+  parse_help_settings( $parser );
+
+  if ( ! @$parameters ) {
+    $DISPLAY->normal( $parser->Help() );
+    exit();
+  }
+
+  parse_display_settings( $parser );
+  parse_commit_settings( $parser, $settings );
+
+  # Get repository path.
+  $settings->{ &VAR_PATH } = shift @$parameters;
+  
+  # Get repository location.
+  $settings->{ &VAR_URL } = shift @$parameters;
+  
+  if ( ! $settings->{ &VAR_URL } ) {
+    $settings->{ &VAR_URL } = $PACKAGE->dependency_setting( $settings->{ &VAR_PATH }, &VAR_URL );
+  }
+  
+  # Check whether or not to reset the repository variables to defaults.
+  $settings->{ &OPT_RESET } = $parser->Values( '-r' )
+    || $parser->Values( '--reset' );
+  
+  # Get repository branch.
+  if ( $parser->Values( '-b' ) ) {
+    $settings->{ &VAR_BRANCH } = $parser->Values( '-b' );
+  }
+  elsif ( $parser->Values( '--branch' ) ) {
+    $settings->{ &VAR_BRANCH } = $parser->Values( '--branch' );
+  }
+  elsif ( ! $settings->{ &OPT_RESET } ) {
+    $settings->{ &VAR_BRANCH } = $PACKAGE->dependency_setting( $settings->{ &VAR_PATH }, &VAR_BRANCH );
+  }
+  
+  # Get repository tag.
+  if ( $parser->Values( '-t' ) ) {
+    $settings->{ &VAR_COMMIT } = $parser->Values( '-t' );
+  }
+  elsif ( $parser->Values( '--tag' ) ) {
+    $settings->{ &VAR_COMMIT } = $parser->Values( '--tag' );
+  }
+  elsif ( ! $settings->{ &OPT_RESET } ) {
+    $settings->{ &VAR_COMMIT } = $PACKAGE->dependency_setting( $settings->{ &VAR_PATH }, &VAR_COMMIT );  
   }
   
   return $settings;
@@ -416,7 +615,7 @@ sub command_remove {
   $PACKAGE->remove_dependencies( 
     
     # Repository paths to remove.
-    $settings->{ &INPUT }, 
+    $settings->{ &VAR_PATH }, 
     
     # Options
     &OPT_STORE => TRUE,
@@ -453,21 +652,22 @@ sub command_remove_settings {
   my $parser = shift;
   my $settings = {};
   
+  my $parameters = $parser->Values( 'other_values' );
+  
   # Abort and show help information if requested.
   parse_help_settings( $parser );
 
   # Get command paths.
-  if ( $parser->Values( 'other_values' ) ) {
-    $settings->{ &INPUT } = $parser->Values( 'other_values' );
-  }
-  else {
-    $settings->{ &INPUT } = [];
-  }
+  $settings->{ &VAR_PATH } = ( 
+      $parameters
+    ? $parameters
+    : []  
+  );
 
   $settings->{ &OPT_REMOVE_ALL } = $parser->Values( '-a' )
     || $parser->Values( '--all' );
 
-  if ( !@{$settings->{ &INPUT }} && !$settings->{ &OPT_REMOVE_ALL } ) {
+  if ( !@{$settings->{ &VAR_PATH }} && !$settings->{ &OPT_REMOVE_ALL } ) {
     $DISPLAY->normal( 
       '',
       'You should either specify package paths'
@@ -595,6 +795,9 @@ switch ( $COMMAND ) {
   
   case &CMD_ADD {
     command_add( $PARAMS );    # Launch dependency add command
+    }
+    case &CMD_EDIT {
+    command_edit( $PARAMS );    # Launch dependency edit command
     }
     case &CMD_LIST {
     command_list( $PARAMS );    # Launch dependency list command
