@@ -152,6 +152,11 @@ our $command_add_help = <<'END';
 -----------------
 
  git dependency add {repository_location}
+ 
+   OR
+ 
+ git dependency add -p {repository_path} [ {repository_location} ]
+ 
 
  Some common patterns of repository locations : ( [] means optional )
 
@@ -258,7 +263,7 @@ sub command_add_options {
   commit_options( \%options );
   display_options( \%options );
   help_options( \%options );
-
+  
   return %options;
 }
 
@@ -406,16 +411,12 @@ sub command_remove {
     GitPM::Param->new( shift, command_remove_options() ) );
 
   # Begin remove dependencies.
-  $DISPLAY->verbose( 'Starting dependency remove command.' );
+  $DISPLAY->verbose( 'Starting dependency remove command.' ); 
   
   $PACKAGE->remove_dependencies( 
     
     # Repository paths to remove.
-    (
-      $settings->{ &OPT_REMOVE_ALL }
-      ? undef
-      : $settings->{ &INPUT }
-    ), 
+    $settings->{ &INPUT }, 
     
     # Options
     &OPT_STORE => TRUE,
@@ -456,14 +457,17 @@ sub command_remove_settings {
   parse_help_settings( $parser );
 
   # Get command paths.
-  if ( @{ $parser->Values( 'other_values' ) } ) {
+  if ( $parser->Values( 'other_values' ) ) {
     $settings->{ &INPUT } = $parser->Values( 'other_values' );
+  }
+  else {
+    $settings->{ &INPUT } = [];
   }
 
   $settings->{ &OPT_REMOVE_ALL } = $parser->Values( '-a' )
     || $parser->Values( '--all' );
 
-  if ( !$settings->{ &INPUT } && !$settings->{ &OPT_REMOVE_ALL } ) {
+  if ( !@{$settings->{ &INPUT }} && !$settings->{ &OPT_REMOVE_ALL } ) {
     $DISPLAY->normal( 
       '',
       'You should either specify package paths'
@@ -472,10 +476,12 @@ sub command_remove_settings {
       $parser->Help() 
     );
   }
-
+  
   # Get extra command options.
   parse_display_settings( $parser );
   parse_commit_settings( $parser, $settings );
+  
+  return $settings;
 }
 
 #*******************************************************************************
@@ -591,10 +597,10 @@ switch ( $COMMAND ) {
     command_add( $PARAMS );    # Launch dependency add command
     }
     case &CMD_LIST {
-    #command_list( $PARAMS );    # Launch dependency list command
+    command_list( $PARAMS );    # Launch dependency list command
     }
     case &CMD_REMOVE {
-    #command_remove( $PARAMS );    # Launch dependency remove command
+    command_remove( $PARAMS );    # Launch dependency remove command
     }
     else {
     display_usage( $PARAMS );

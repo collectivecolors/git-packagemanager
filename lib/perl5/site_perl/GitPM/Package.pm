@@ -192,6 +192,7 @@ sub set_dependency {
 
 sub remove_dependencies {
   my ( $self, $path, %config ) = @_;
+  my $display = $self->display();
   
   my @paths = (
     ref $path eq 'ARRAY'
@@ -200,9 +201,13 @@ sub remove_dependencies {
   );
   
   if ( ! @paths ) {
+    $display->debug( 'Removing all dependencies.' );
     $self->{ &CONFIG }->remove_named_setting( &DEPENDENCY );
   }
   else {
+    $display->debug( "Removing dependency paths.\n", 
+                     $display->dump_if_debug( \@paths ) );
+                     
     foreach ( @paths ) {
       $self->{ &CONFIG }->remove_named_setting( &DEPENDENCY, $_ );
     }
@@ -246,14 +251,24 @@ sub render_dependency_list {
     foreach my $package ( @packages ) {
       my $variables = $self->dependency( $package );
       my $repo_url  = $variables->{ &VAR_URL };
-
-      $display->normal( sprintf " %-${display_length}s  [  %s  ]",
-        $package, $repo_url );
-      $display->normal();
+      
+      $display->normal( " $package\n" );
+            
+      my $max_variable_length = 0;
+      
+      foreach my $key ( keys %$variables ) {
+        my $key_length = length $key;
+        
+        $max_variable_length = (
+          $key_length > $max_variable_length
+          ? $key_length
+          : $max_variable_length
+        );  
+      }
 
       while ( my ( $variable, $value ) = each %$variables ) {
-        $display->normal( sprintf " %${display_length}s     %s = %s",
-          '', $variable, $value );
+        $display->normal( 
+          sprintf "   %-${max_variable_length}s  =  '%s'", $variable, $value );
       }
 
       $display->normal();

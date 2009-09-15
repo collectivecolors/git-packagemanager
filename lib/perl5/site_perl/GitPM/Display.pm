@@ -154,18 +154,21 @@ sub debug {
 
 sub dump {
   my ( $self, $data, $spacer ) = @_;
-    
-  if ( ref $data eq 'HASH' ) {
+  
+  if ( ! defined $data ) {
+    return ( $spacer . '<UNDEFINED>' );
+  }  
+  elsif ( ref $data eq 'HASH' ) {
     return $self->dump_hash( $data, $spacer );
   }
-  elsif ( ref $data eq 'HASH' ) {
+  elsif ( ref $data eq 'ARRAY' ) {
     return $self->dump_array( $data, $spacer );
   }
-  elsif ( ref $data eq 'SCALAR' ) {
-    return ( $data );  
+  elsif ( ! ref $data ) {
+    return ( $spacer . $data );  
   }
     
-  return ( "UNKNOWN ( $data )" );
+  return ( $spacer . "<UNKNOWN> ( $data )" );
 }
 
 #-------------------------------------------------------------------------------
@@ -190,19 +193,22 @@ sub dump_hash {
     
     my $variable = $spacer . sprintf "%-${max_key_length}s", $key;
     
-    if ( ref $value eq 'HASH' ) {
-      push @values, "$variable  =  <HASH ( $value )>", '';
+    if ( ! defined $value ) {
+      push @values, "$variable  =  <UNDEFINED>";
+    }
+    elsif ( ref $value eq 'HASH' ) {
+      push @values, "$variable  =  $value\n";
       @values = ( @values, $self->dump_hash( $value, $spacer . '  ' ), ( '' ) );  
     }
     elsif ( ref $value eq 'ARRAY' ) {
-      push @values, "$variable  =  <ARRAY ( $value )>", '';
+      push @values, "$variable  =  $value\n";
       @values = ( @values, $self->dump_array( $value, $spacer . '  ' ), ( '' ) );  
     }
-    elsif ( ref $value eq 'SCALAR' ) {
+    elsif ( ! ref $value ) {
       push @values, "$variable  =  '$value'";  
     }
     else {
-      push @values, "$variable  =  <UNKNOWN ( $value )>";  
+      push @values, "$variable  =  <UNKNOWN> ( $value )";  
     }
   }   
   
@@ -217,24 +223,29 @@ sub dump_array {
   
   $spacer = ( defined $spacer ? $spacer : '  ' );
   
+  my $max_index_length = length( @$array - 1 );
+  
   for ( my $index = 0; $index < @$array; $index++ ) {
     
-    my $element = $spacer . sprintf "[ %-4d ]", $index;
+    my $element = $spacer . sprintf "[ %${max_index_length}d ]", $index;
     my $value   = $array->[ $index ]; 
     
-    if ( ref $value eq 'HASH' ) {
-      push @values, "$element  =  <HASH ( $value )>", '';
+    if ( ! defined $value ) {
+      push @values, "$element  =  <UNDEFINED>";
+    }
+    elsif ( ref $value eq 'HASH' ) {
+      push @values, "$element  =  $value\n";
       @values = ( @values, $self->dump_hash( $value, $spacer . '  ' ), ( '' ) );  
     }
     elsif ( ref $value eq 'ARRAY' ) {
-      push @values, "$element  =  <ARRAY ( $value )>", '';
+      push @values, "$element  =  $value\n";
       @values = ( @values, $self->dump_array( $value, $spacer . '  ' ), ( '' ) );  
     }
-    elsif ( ref $value eq 'SCALAR' ) {
+    elsif ( ! ref $value ) {
       push @values, "$element  =  '$value'";  
     }
     else {
-      push @values, "$element  =  <UNKNOWN ( $value )>";  
+      push @values, "$element  =  <UNKNOWN> ( $value )";  
     }    
   }
   
