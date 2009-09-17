@@ -45,9 +45,32 @@ $VERSION = '0.1';
 
 sub new {
   my ( $class, $argv, %template ) = @_;
-
-  my $self = Getopt::OO->new( $argv, %template );
-
+  my $self;
+  
+  my $help =  $template{ &HELP };
+  delete $template{ &HELP };
+  
+  eval {
+    $self = Getopt::OO->new( $argv, %template );
+  };
+  
+  # There were errors in the parsing process.
+  if ( $@ ) {
+    if ( $help ) {
+      # Parse the errors returned.  I know, this is brittle, but it is the 
+      # only way right now without hacking the Getopt::OO module.
+      $@ =~ /(Found following errors:.*)$/si;
+      die "\n$1\n$help";  
+    }
+    else {
+      die $@;
+    }
+  }
+  
+  if ( $help ) {
+    $self->{ &HELP } = $help;  
+  }
+    
   return bless( $self, $class );
 }
 
@@ -63,16 +86,6 @@ sub new {
 # Utilities
 #-------------------------------------------------------------------------------
 
-sub build_help {
-  my ( $self, $template ) = @_;
-  
-  print 'Im here!';
-  
-  if ( $template->{ &HELP } ) {
-    return $template->{ &HELP };  
-  }
-  return $self->SUPER::build_help;  
-}
 
 #-------------------------------------------------------------------------------
 

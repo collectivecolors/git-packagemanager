@@ -32,7 +32,6 @@ use constant {
   # Dependency variables
   VAR_URL    => 'url',
   VAR_PATH   => 'path',
-  VAR_BRANCH => 'branch',
   VAR_COMMIT => 'commit',
 
   OPT_RESET => 'option_reset',
@@ -168,12 +167,6 @@ sub set_dependency {
     {
       &VAR_URL    => $repo_url,
       &VAR_PATH   => $path,
-      &VAR_BRANCH => (
-          $config{ &VAR_BRANCH }
-        ? $config{ &VAR_BRANCH }
-        : &BRANCH_MASTER
-      ),
-
       &VAR_COMMIT => (
           $config{ &VAR_COMMIT }
         ? $config{ &VAR_COMMIT }

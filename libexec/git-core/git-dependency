@@ -93,7 +93,6 @@ use constant {
   # Command parameters.
   VAR_URL => &GitPM::Package::VAR_URL,
   VAR_PATH => &GitPM::Package::VAR_PATH,
-  VAR_BRANCH => &GitPM::Package::VAR_BRANCH,
   VAR_COMMIT => &GitPM::Package::VAR_COMMIT,
   
   OPT_RESET => &GitPM::Package::OPT_RESET,
@@ -184,8 +183,6 @@ our $command_add_help = <<'END';
                                   The repository url is parsed from the
                                   following pattern :
                                     [{my-info}-]{my.package.path}[.git]
-  [ -b | --branch {branch} ]    * Branch of repository required.  The default
-                                  is <master>.
   [ -t | --tag {tag} ]          * Tag of repository branch required.  The
                                   default is the most recent commit, <HEAD>.
                                   This can be a commit hash.  It is named tag
@@ -212,7 +209,6 @@ sub command_add {
     
     # Dependency variables
     &VAR_PATH   => $settings->{ &VAR_PATH },
-    &VAR_BRANCH => $settings->{ &VAR_BRANCH },
     &VAR_COMMIT => $settings->{ &VAR_COMMIT },
     
     # Options
@@ -241,15 +237,6 @@ sub command_add_options {
     },
     '--path' => {
       help     => 'Repository path from application base source directory.',
-      n_values => 1
-    },
-
-    '-b' => {
-      help     => 'See information for --branch option.',
-      n_values => 1
-    },
-    '--branch' => {
-      help => 'Branch required for this repository.  Defaults to < master >.',
       n_values => 1
     },
 
@@ -298,14 +285,6 @@ sub command_add_settings {
     $settings->{ &VAR_PATH } = $parser->Values( '--path' );
   }
 
-  # Get repository branch, if specified.
-  if ( $parser->Values( '-b' ) ) {
-    $settings->{ &VAR_BRANCH } = $parser->Values( '-b' );
-  }
-  elsif ( $parser->Values( '--branch' ) ) {
-    $settings->{ &VAR_BRANCH } = $parser->Values( '--branch' );
-  }
-  
   # Get repository tag, if specified.
   if ( $parser->Values( '-t' ) ) {
     $settings->{ &VAR_COMMIT } = $parser->Values( '-t' );
@@ -354,8 +333,6 @@ our $command_edit_help = <<'END';
                                   location is used.  This way you can change
                                   the branch or tag without modifying or 
                                   specifying the repository location.
-  [ -b | --branch {branch} ]    * Branch of repository required.  The default
-                                  is <master>.
   [ -t | --tag {tag} ]          * Tag of repository branch required.  The
                                   default is the most recent commit, <HEAD>.
                                   This can be a commit hash.  It is named tag
@@ -393,8 +370,6 @@ sub command_edit {
     
     # Dependency variables
     &VAR_PATH   => $settings->{ &VAR_PATH },
-    
-    &VAR_BRANCH => $settings->{ &VAR_BRANCH },    
     &VAR_COMMIT => $settings->{ &VAR_COMMIT },
     
     # Options
@@ -427,15 +402,6 @@ sub command_edit_options {
     },
     '--reset' => {
       help     => 'See information for -r option.'
-    },
-
-    '-b' => {
-      help     => 'See information for --branch option.',
-      n_values => 1
-    },
-    '--branch' => {
-      help => 'Branch required for this repository.  Defaults to < master >.',
-      n_values => 1
     },
 
     '-t' => {
@@ -487,17 +453,6 @@ sub command_edit_settings {
   # Check whether or not to reset the repository variables to defaults.
   $settings->{ &OPT_RESET } = $parser->Values( '-r' )
     || $parser->Values( '--reset' );
-  
-  # Get repository branch.
-  if ( $parser->Values( '-b' ) ) {
-    $settings->{ &VAR_BRANCH } = $parser->Values( '-b' );
-  }
-  elsif ( $parser->Values( '--branch' ) ) {
-    $settings->{ &VAR_BRANCH } = $parser->Values( '--branch' );
-  }
-  elsif ( ! $settings->{ &OPT_RESET } ) {
-    $settings->{ &VAR_BRANCH } = $PACKAGE->dependency_setting( $settings->{ &VAR_PATH }, &VAR_BRANCH );
-  }
   
   # Get repository tag.
   if ( $parser->Values( '-t' ) ) {
